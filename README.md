@@ -8,26 +8,26 @@ A security monitoring solution that detects failed login attempts on Windows Vir
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                        Security Monitoring System                          │
+│                    Multi-VM Security Monitoring System                      │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌───────────┐ │
-│  │   Windows    │───▶│   Log        │───▶│   Attack     │───▶│   REST    │ │
-│  │   Event Log  │    │   Monitor    │    │   Detector   │    │   API     │ │
-│  │   (4625)     │    │   Service    │    │   Engine     │    │   Server  │ │
-│  └──────────────┘    └──────────────┘    └──────────────┘    └───────────┘ │
-│                                                      │            │         │
-│                                                      ▼            ▼         │
-│                                            ┌──────────────┐  ┌───────────┐ │
-│                                            │   MSSQL      │  │ Firewall  │ │
-│                                            │   Database   │  │ Blocking  │ │
-│                                            └──────────────┘  └───────────┘ │
-│                                                                           │
-│                                                      ▼                     │
-│                                            ┌──────────────┐               │
-│                                            │   React      │               │
-│                                            │   Dashboard  │               │
-│                                            └──────────────┘               │
+│  ┌──────────┐   ┌──────────┐   ┌──────────┐     ┌──────────────────────┐  │
+│  │ Windows  │   │ Windows  │   │ Windows  │     │   Event Collector    │  │
+│  │   VM #1  │   │   VM #2  │   │   VM #3  │────▶│  (WEF or Agent API)  │  │
+│  │ Event    │   │ Event    │   │ Event    │     └──────────┬───────────┘  │
+│  │  4625    │   │  4625    │   │  4625    │                │             │
+│  └────┬─────┘   └────┬─────┘   └────┬─────┘                ▼             │
+│       │              │              │           ┌──────────────────────┐  │
+│       │ WEF/Agent    │ WEF/Agent    │ WEF/Agent │   Detection Engine   │  │
+│       └──────────────┴──────────────┴───────────┤   + REST API Server   │  │
+│                                                   └──────────┬───────────┘  │
+│                                                              │              │
+│                                            ┌─────────────────┼───────────┐  │
+│                                            ▼                 ▼           ▼  │
+│                                      ┌──────────┐   ┌───────────┐  ┌──────┐ │
+│                                      │  MSSQL   │   │ Firewall  │  │React │ │
+│                                      │ Database │   │ Blocking  │  │ Dash │ │
+│                                      └──────────┘   └───────────┘  └──────┘ │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -64,15 +64,18 @@ A security monitoring solution that detects failed login attempts on Windows Vir
 | THRESHOLD | 5 | Failed attempts before blocking |
 | TIME_WINDOW | 5 | Time window in minutes |
 | BLOCK_DURATION | 60 | Block duration in minutes |
+| GLOBAL_THRESHOLD | 5 | Threshold across all VMs |
+| ENABLE_GLOBAL_AUTO_BLOCK | true | Enable global IP blocking |
+| ENABLE_PER_VM_BLOCK | true | Enable per-VM blocking |
 
 ## Quick Start
 
 ```bash
 # Install dependencies
-npm install
+pip install -r requirements.txt
 
 # Run backend
-npm run server
+uvicorn main:app --reload
 
 # Run frontend
 npm run dashboard
@@ -82,11 +85,25 @@ npm run dashboard
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | /api/suspicious-ips | Get suspicious IP list |
-| GET | /api/statistics | Get attack statistics |
-| GET | /api/blocked-ips | Get currently blocked IPs |
-| POST | /api/block | Manually block an IP |
-| DELETE | /api/block/:ip | Unblock an IP |
+| GET | /api/v1/suspicious-ips | Get suspicious IP list |
+| GET | /api/v1/statistics | Get attack statistics |
+| GET | /api/v1/blocked-ips | Get currently blocked IPs |
+| POST | /api/v1/block | Manually block an IP |
+| DELETE | /api/v1/block/:ip | Unblock an IP |
+| GET | /api/v1/vms | List all monitored VMs |
+| POST | /api/v1/vms | Register a new VM |
+| GET | /api/v1/vms/:vm_id/attacks | Get attacks per VM |
+| POST | /api/v1/events | Receive events (agent/WEF) |
+| POST | /api/v1/block/per-vm | Block IP on specific VM |
+| GET | /api/v1/statistics/global | Global stats across VMs |
+
+## Multi-VM Support
+
+This system supports centralized monitoring from multiple Windows VMs using either:
+- **WEF (Windows Event Forwarding)**: Agentless collection from source VMs
+- **Agent-based**: Lightweight Python agent on each VM
+
+See `MULTI_VM_COLLECTION.md` for detailed setup instructions.
 
 ## License
 

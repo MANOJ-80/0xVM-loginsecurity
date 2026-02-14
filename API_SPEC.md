@@ -2,7 +2,7 @@
 
 ## Base URL
 ```
-http://localhost:3000/api
+http://localhost:3000/api/v1
 ```
 
 ## Endpoints
@@ -12,6 +12,8 @@ http://localhost:3000/api
 **GET** `/suspicious-ips`
 
 Returns list of IPs with failed login attempts exceeding threshold.
+
+**Note**: Full URLs are relative to Base URL. Example: `/suspicious-ips` = `http://localhost:3000/api/v1/suspicious-ips`
 
 **Response:**
 ```json
@@ -171,6 +173,186 @@ Returns attack data with geo-location information.
       "attack_count": 45
     }
   ]
+}
+```
+
+---
+
+### 8. Register VM (Multi-VM)
+
+**POST** `/vms`
+
+Register a new VM to the monitoring system.
+
+**Request Body:**
+```json
+{
+  "vm_id": "vm-001",
+  "hostname": "WIN-VM01",
+  "ip_address": "192.168.1.10",
+  "collection_method": "agent"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "VM vm-001 registered successfully"
+}
+```
+
+---
+
+### 9. List VMs (Multi-VM)
+
+**GET** `/vms`
+
+Returns list of all monitored VMs.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "vm_id": "vm-001",
+      "hostname": "WIN-VM01",
+      "ip_address": "192.168.1.10",
+      "collection_method": "agent",
+      "status": "active",
+      "last_seen": "2024-01-15T10:45:00Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+---
+
+### 10. Get VM Attacks (Multi-VM)
+
+**GET** `/vms/:vm_id/attacks`
+
+Returns attack statistics for a specific VM.
+
+**Response:**
+```json
+{
+  "success": true,
+  "vm_id": "vm-001",
+  "hostname": "WIN-VM01",
+  "total_attacks": 45,
+  "unique_attackers": 12,
+  "attacks_last_24h": 23,
+  "attacks_last_hour": 5,
+  "top_attacked_usernames": [
+    { "username": "admin", "count": 30 },
+    { "username": "root", "count": 15 }
+  ],
+  "top_attackers": [
+    { "ip_address": "192.168.1.100", "count": 20 }
+  ]
+}
+```
+
+---
+
+### 11. Receive Events (Multi-VM)
+
+**POST** `/events`
+
+Receive failed login events from agents or WEF collector.
+
+**Request Body:**
+```json
+{
+  "vm_id": "vm-001",
+  "hostname": "WIN-VM01",
+  "events": [
+    {
+      "timestamp": "2024-01-15T10:30:00Z",
+      "ip_address": "192.168.1.100",
+      "username": "admin",
+      "domain": "WIN-VM01",
+      "logon_type": "10",
+      "status": "0xc000006d",
+      "workstation": "ATTACK-PC",
+      "source_port": "54321"
+    }
+  ]
+}
+```
+
+**Note**: Authentication is handled at network level. Ensure firewall restricts access to trusted VM IPs only.
+
+**Response:**
+```json
+{
+  "success": true,
+  "events_received": 1
+}
+```
+
+---
+
+### 12. Block IP Per-VM (Multi-VM)
+
+**POST** `/block/per-vm`
+
+Block an IP specifically on one VM (not global).
+
+**Request Body:**
+```json
+{
+  "ip_address": "192.168.1.100",
+  "vm_id": "vm-001",
+  "reason": "Repeated failed logins on VM vm-001",
+  "duration_minutes": 120
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "IP 192.168.1.100 blocked on VM vm-001 for 120 minutes"
+}
+```
+
+---
+
+### 13. Global Statistics (Multi-VM)
+
+**GET** `/statistics/global`
+
+Returns global aggregated statistics across all VMs.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "total_failed_attempts": 1250,
+    "unique_attackers": 45,
+    "blocked_ips": 12,
+    "active_vms": 5,
+    "inactive_vms": 1,
+    "attacks_last_24h": 89,
+    "attacks_last_hour": 15,
+    "attacks_by_vm": [
+      { "vm_id": "vm-001", "count": 450 },
+      { "vm_id": "vm-002", "count": 320 }
+    ],
+    "top_attacked_usernames": [
+      { "username": "admin", "count": 450 },
+      { "username": "root", "count": 320 }
+    ],
+    "attacks_by_hour": [
+      { "hour": "00:00", "count": 15 },
+      { "hour": "01:00", "count": 23 }
+    ]
+  }
 }
 ```
 

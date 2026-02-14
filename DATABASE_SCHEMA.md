@@ -17,9 +17,11 @@ CREATE TABLE FailedLoginAttempts (
     source_port INT,
     timestamp DATETIME2 DEFAULT GETUTCDATE(),
     event_id INT DEFAULT 4625,
+    source_vm_id VARCHAR(100),  -- NEW: identifies source VM (null for single-VM)
     
     INDEX idx_ip_timestamp (ip_address, timestamp),
-    INDEX idx_timestamp (timestamp)
+    INDEX idx_timestamp (timestamp),
+    INDEX idx_source_vm (source_vm_id, timestamp)  -- NEW: for per-VM queries
 );
 ```
 
@@ -59,9 +61,12 @@ CREATE TABLE BlockedIPs (
     is_active BIT DEFAULT 1,
     unblocked_at DATETIME2 NULL,
     unblocked_by VARCHAR(50) NULL,
+    scope VARCHAR(20) DEFAULT 'global',  -- NEW: global or per-vm
+    target_vm_id VARCHAR(100) NULL,  -- NEW: for per-VM blocks
     
     INDEX idx_active (is_active),
-    INDEX idx_expires (block_expires)
+    INDEX idx_expires (block_expires),
+    INDEX idx_scope (scope, is_active)  -- NEW: for scope queries
 );
 ```
 
@@ -73,6 +78,7 @@ Aggregated statistics for dashboard.
 CREATE TABLE AttackStatistics (
     id INT IDENTITY(1,1) PRIMARY KEY,
     stat_date DATE,
+    vm_id VARCHAR(100) NULL,  -- NEW: NULL means global aggregate
     total_attacks INT,
     unique_attackers INT,
     blocked_count INT,
@@ -80,7 +86,9 @@ CREATE TABLE AttackStatistics (
     top_ip VARCHAR(45),
     created_at DATETIME2 DEFAULT GETUTCDATE(),
     
-    UNIQUE (stat_date)
+    UNIQUE (stat_date, vm_id),  -- Updated: allow per-VM stats
+    INDEX idx_date (stat_date),
+    INDEX idx_vm (vm_id, stat_date)  -- NEW: for per-VM queries
 );
 ```
 
@@ -101,7 +109,49 @@ INSERT INTO Settings (key_name, value, description) VALUES
 ('THRESHOLD', '5', 'Failed attempts before marking as suspicious'),
 ('TIME_WINDOW', '5', 'Time window in minutes for threshold'),
 ('BLOCK_DURATION', '60', 'Auto-block duration in minutes'),
-('ENABLE_AUTO_BLOCK', 'true', 'Enable automatic IP blocking');
+('ENABLE_AUTO_BLOCK', 'true', 'Enable automatic IP blocking'),
+('GLOBAL_THRESHOLD', '5', 'Global threshold across all VMs'),
+('ENABLE_GLOBAL_AUTO_BLOCK', 'true', 'Enable global auto-blocking');
+```
+
+### 6. VMSources (NEW - Multi-VM)
+
+Registry of all monitored VMs.
+
+```sql
+CREATE TABLE VMSources (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    vm_id VARCHAR(100) NOT NULL UNIQUE,
+    hostname NVARCHAR(256),
+    ip_address VARCHAR(45),
+    collection_method VARCHAR(20),  -- 'wef', 'agent'
+    status VARCHAR(20) DEFAULT 'active',  -- active, inactive, error
+    last_seen DATETIME2,
+    created_at DATETIME2 DEFAULT GETUTCDATE(),
+    
+    INDEX idx_vm_id (vm_id),
+    INDEX idx_status (status)
+);
+```
+
+### 7. PerVMThresholds (NEW - Multi-VM)
+
+Override thresholds per VM.
+
+```sql
+CREATE TABLE PerVMThresholds (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    vm_id VARCHAR(100) NOT NULL,
+    threshold INT DEFAULT 5,
+    time_window_minutes INT DEFAULT 5,
+    block_duration_minutes INT DEFAULT 60,
+    auto_block_enabled BIT DEFAULT 1,
+    created_at DATETIME2 DEFAULT GETUTCDATE(),
+    updated_at DATETIME2 DEFAULT GETUTCDATE(),
+    
+    FOREIGN KEY (vm_id) REFERENCES VMSources(vm_id),
+    UNIQUE (vm_id)
+);
 ```
 
 ## Stored Procedures
@@ -164,5 +214,119 @@ BEGIN
     VALUES (@ip_address, @reason, DATEADD(MINUTE, @duration_minutes, GETUTCDATE()), @blocked_by);
     
     UPDATE SuspiciousIPs SET status = 'blocked' WHERE ip_address = @ip_address;
+END
+```
+
+### sp_RecordFailedLoginMultiVM (NEW - Multi-VM)
+```sql
+CREATE PROCEDURE sp_RecordFailedLoginMultiVM
+    @ip_address VARCHAR(45),
+    @username NVARCHAR(256),
+    @hostname NVARCHAR(256) = NULL,
+    @logon_type INT = NULL,
+    @failure_reason INT = NULL,
+    @source_port INT = NULL,
+    @source_vm_id VARCHAR(100) = NULL
+AS
+BEGIN
+    INSERT INTO FailedLoginAttempts (ip_address, username, hostname, logon_type, failure_reason, source_port, source_vm_id)
+    VALUES (@ip_address, @username, @hostname, @logon_type, @failure_reason, @source_port, @source_vm_id);
+    
+    -- Update or insert suspicious IP (global tracking)
+    IF EXISTS (SELECT 1 FROM SuspiciousIPs WHERE ip_address = @ip_address)
+    BEGIN
+        UPDATE SuspiciousIPs 
+        SET failed_attempts = failed_attempts + 1,
+            last_attempt = GETUTCDATE(),
+            updated_at = GETUTCDATE()
+        WHERE ip_address = @ip_address;
+    END
+    ELSE
+    BEGIN
+        INSERT INTO SuspiciousIPs (ip_address, failed_attempts, first_attempt, last_attempt)
+        VALUES (@ip_address, 1, GETUTCDATE(), GETUTCDATE());
+    END
+    
+    -- Update VM last_seen
+    IF @source_vm_id IS NOT NULL
+    BEGIN
+        UPDATE VMSources SET last_seen = GETUTCDATE() WHERE vm_id = @source_vm_id;
+    END
+END
+```
+
+### sp_RegisterVM (NEW - Multi-VM)
+```sql
+CREATE PROCEDURE sp_RegisterVM
+    @vm_id VARCHAR(100),
+    @hostname NVARCHAR(256),
+    @ip_address VARCHAR(45),
+    @collection_method VARCHAR(20) = 'agent'
+AS
+BEGIN
+    IF EXISTS (SELECT 1 FROM VMSources WHERE vm_id = @vm_id)
+    BEGIN
+        UPDATE VMSources 
+        SET hostname = @hostname, 
+            ip_address = @ip_address,
+            collection_method = @collection_method,
+            status = 'active',
+            last_seen = GETUTCDATE()
+        WHERE vm_id = @vm_id;
+    END
+    ELSE
+    BEGIN
+        INSERT INTO VMSources (vm_id, hostname, ip_address, collection_method, status, last_seen)
+        VALUES (@vm_id, @hostname, @ip_address, @collection_method, 'active', GETUTCDATE());
+    END
+END
+```
+
+### sp_BlockIPPerVM (NEW - Multi-VM)
+```sql
+CREATE PROCEDURE sp_BlockIPPerVM
+    @ip_address VARCHAR(45),
+    @target_vm_id VARCHAR(100),
+    @reason NVARCHAR(500),
+    @duration_minutes INT = 60,
+    @blocked_by VARCHAR(50) = 'auto'
+AS
+BEGIN
+    INSERT INTO BlockedIPs (ip_address, reason, block_expires, blocked_by, scope, target_vm_id)
+    VALUES (@ip_address, @reason, DATEADD(MINUTE, @duration_minutes, GETUTCDATE()), @blocked_by, 'per-vm', @target_vm_id);
+    
+    -- Check if also update global suspicious
+    IF NOT EXISTS (SELECT 1 FROM SuspiciousIPs WHERE ip_address = @ip_address)
+    BEGIN
+        INSERT INTO SuspiciousIPs (ip_address, failed_attempts, first_attempt, last_attempt, status)
+        VALUES (@ip_address, 1, GETUTCDATE(), GETUTCDATE(), 'blocked');
+    END
+    ELSE
+    BEGIN
+        UPDATE SuspiciousIPs SET status = 'blocked', updated_at = GETUTCDATE() WHERE ip_address = @ip_address;
+    END
+END
+```
+
+### sp_GetVMStats (NEW - Multi-VM)
+```sql
+CREATE PROCEDURE sp_GetVMStats
+    @vm_id VARCHAR(100)
+AS
+BEGIN
+    SELECT 
+        source_vm_id as vm_id,
+        COUNT(*) as total_attacks,
+        COUNT(DISTINCT ip_address) as unique_attackers,
+        (
+            SELECT COUNT(*)
+            FROM BlockedIPs b
+            WHERE b.is_active = 1
+              AND (b.scope = 'global' OR (b.scope = 'per-vm' AND b.target_vm_id = @vm_id))
+        ) as blocked_count,
+        MAX(timestamp) as last_attack
+    FROM FailedLoginAttempts
+    WHERE source_vm_id = @vm_id
+    GROUP BY source_vm_id;
 END
 ```
