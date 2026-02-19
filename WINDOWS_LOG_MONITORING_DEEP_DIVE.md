@@ -72,85 +72,85 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 
 class WindowsEventMonitor:
-    def __init__(self, log_name='Security', event_id=4625):
-        self.log_name = log_name
+    """
+    Queries the Windows Security Event Log for Event ID 4625
+    using the modern EvtQuery / EvtNext / EvtRender API.
+
+    NOTE: The older ReadEventLog API returns PyEventLogRecord
+    objects whose StringInserts attribute is a *tuple of strings*,
+    NOT XML.  Use the EvtQuery pipeline shown here to get proper
+    event XML for parsing.
+    """
+
+    def __init__(self, event_id=4625):
         self.event_id = event_id
-        self.server = 'localhost'
-    
-    def parse_event_data(self, xml_data):
-        """Extract data from Event XML"""
-        root = ET.fromstring(xml_data)
-        
-        # Define XML namespace
+
+    def parse_event_xml(self, xml_string):
+        """Extract fields from rendered event XML."""
+        root = ET.fromstring(xml_string)
         ns = {'e': 'http://schemas.microsoft.com/win/2004/08/events/event'}
-        
-        # Extract EventData fields
+
         data = {}
         for item in root.findall('.//e:Data', ns):
             name = item.get('Name')
             if name:
                 data[name] = item.text
-        
+
+        time_el = root.find('.//e:TimeCreated', ns)
+
         return {
-            'timestamp': root.find('.//e:TimeCreated', ns).get('SystemTime'),
+            'timestamp': time_el.get('SystemTime') if time_el is not None else None,
             'ip_address': data.get('IpAddress', 'N/A'),
             'username': data.get('TargetUserName', 'N/A'),
             'domain': data.get('TargetDomainName', 'N/A'),
             'logon_type': data.get('LogonType', 'N/A'),
             'status': data.get('Status', 'N/A'),
             'failure_reason': data.get('FailureReason', 'N/A'),
+            'workstation': data.get('WorkstationName', 'N/A'),
+            'source_port': data.get('IpPort', 'N/A'),
         }
-    
+
     def query_events(self, hours=1, max_events=100):
-        """Query recent failed login events"""
-        handle = win32evtlog.OpenEventLog(self.server, self.log_name)
-        
-        flags = win32evtlog.EVENTLOG_BACKWARDS_READ | win32evtlog.EVENTLOG_SEQUENTIAL_READ
-        
+        """Query recent failed login events via EvtQuery."""
+        query = f"*[System[EventID={self.event_id}]]"
+        flags = (win32evtlog.EvtQueryChannelPath
+                 | win32evtlog.EvtQueryReverseDirection)
+
+        handle = win32evtlog.EvtQuery('Security', flags, query)
+
         events = []
-        cutoff_time = datetime.now() - timedelta(hours=hours)
-        
-        while True:
-            events_batch = win32evtlog.ReadEventLog(handle, flags, 0)
-            
-            if not events_batch:
+        cutoff = datetime.utcnow() - timedelta(hours=hours)
+
+        while len(events) < max_events:
+            try:
+                batch = win32evtlog.EvtNext(handle, 50, -1, 0)
+            except Exception:
                 break
-            
-            for event in events_batch:
-                if event.EventID == self.event_id:
-                    # Convert time created
-                    event_time = event.TimeGenerated
-                    
-                    if event_time < cutoff_time:
+            if not batch:
+                break
+            for h in batch:
+                xml_str = win32evtlog.EvtRender(h,
+                                                win32evtlog.EvtRenderEventXml)
+                parsed = self.parse_event_xml(xml_str)
+
+                # Respect time cutoff
+                if parsed['timestamp']:
+                    ts = datetime.fromisoformat(
+                        parsed['timestamp'].rstrip('Z'))
+                    if ts < cutoff:
                         continue
-                    
-                    # Get XML data
-                    xml_data = event.StringInserts  # Raw data
-                    
-                    # Parse using record
-                    parsed = {
-                        'timestamp': event.TimeGenerated.isoformat(),
-                        'ip_address': getattr(event, 'IpAddress', None),
-                        'event_id': event.EventID,
-                        'source': event.SourceName,
-                    }
-                    
-                    events.append(parsed)
-                    
-                    if len(events) >= max_events:
-                        break
-            
-            if len(events) >= max_events:
-                break
-        
-        win32evtlog.CloseEventLog(handle)
+
+                events.append(parsed)
+                if len(events) >= max_events:
+                    break
+
         return events
 
 # Usage
 monitor = WindowsEventMonitor()
 events = monitor.query_events(hours=1, max_events=10)
 for e in events:
-    print(f"IP: {e['ip_address']} | Time: {e['timestamp']}")
+    print(f"IP: {e['ip_address']} | User: {e['username']} | Time: {e['timestamp']}")
 ```
 
 ---

@@ -170,7 +170,7 @@ Call firewall script
     │
     ▼
  Notify dashboard
- via WebSocket
+  via SSE feed
 ```
 
 ### Polling Integration
@@ -180,7 +180,7 @@ For external firewalls that cannot run scripts locally:
 ```javascript
 // Polling service on firewall device
 async function pollBlockedIPs() {
-    const response = await fetch('http://monitor-server/api/blocked-ips');
+    const response = await fetch('http://localhost:3000/api/v1/blocked-ips');
     const { data: blockedIPs } = await response.json();
     
     for (const ip of blockedIPs) {

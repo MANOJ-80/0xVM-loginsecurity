@@ -80,12 +80,16 @@
 - `GET /api/v1/blocked-ips`
 - `GET /api/v1/statistics`
 - `GET /api/v1/statistics/global`
+- `GET /api/v1/feed`
+- `GET /api/v1/geo-attacks`
 - `GET /api/v1/vms`
 - `POST /api/v1/vms`
+- `DELETE /api/v1/vms/:vm_id`
 - `GET /api/v1/vms/:vm_id/attacks`
 - `POST /api/v1/block`
 - `DELETE /api/v1/block/:ip`
 - `POST /api/v1/block/per-vm`
+- `GET /api/v1/health`
 
 ## Auth Model (MVP)
 

@@ -358,6 +358,41 @@ Returns global aggregated statistics across all VMs.
 
 ---
 
+### 14. Delete VM (Multi-VM)
+
+**DELETE** `/vms/:vm_id`
+
+Unregister a VM from the monitoring system.
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "VM vm-001 unregistered"
+}
+```
+
+---
+
+### 15. Health Check
+
+**GET** `/health`
+
+Returns service health status. Use this from agents to verify the collector is reachable before sending events.
+
+**Response:**
+```json
+{
+  "success": true,
+  "status": "healthy",
+  "uptime_seconds": 86400,
+  "active_vms": 5,
+  "db_connected": true
+}
+```
+
+---
+
 ## Error Responses
 
 ### 400 Bad Request

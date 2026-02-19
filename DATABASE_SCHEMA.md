@@ -187,6 +187,21 @@ BEGIN
 END
 ```
 
+> **Design note:** `SuspiciousIPs.failed_attempts` is a lifetime counter
+> for quick dashboard display.  The detection engine must **not** rely on
+> this counter for threshold decisions.  Instead, it should count rows in
+> `FailedLoginAttempts` within the configured `TIME_WINDOW`:
+>
+> ```sql
+> -- Example: count attempts in the last N minutes for threshold check
+> SELECT COUNT(*)
+> FROM FailedLoginAttempts
+> WHERE ip_address = @ip_address
+>   AND timestamp >= DATEADD(MINUTE, -@time_window, GETUTCDATE());
+> ```
+>
+> This prevents stale old attempts from inflating the threshold check.
+
 ### sp_GetSuspiciousIPs
 ```sql
 CREATE PROCEDURE sp_GetSuspiciousIPs
@@ -254,6 +269,11 @@ BEGIN
     END
 END
 ```
+
+> **Design note:** As with `sp_RecordFailedLogin`, threshold decisions
+> should query `FailedLoginAttempts` with a `TIME_WINDOW` filter rather
+> than relying on the `SuspiciousIPs.failed_attempts` lifetime counter.
+> For per-VM thresholds, also filter by `source_vm_id`.
 
 ### sp_RegisterVM (NEW - Multi-VM)
 ```sql

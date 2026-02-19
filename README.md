@@ -90,12 +90,16 @@ npm run dashboard
 | GET | /api/v1/blocked-ips | Get currently blocked IPs |
 | POST | /api/v1/block | Manually block an IP |
 | DELETE | /api/v1/block/:ip | Unblock an IP |
+| GET | /api/v1/feed | Real-time attack feed (SSE) |
+| GET | /api/v1/geo-attacks | Geo-location attack data |
 | GET | /api/v1/vms | List all monitored VMs |
 | POST | /api/v1/vms | Register a new VM |
+| DELETE | /api/v1/vms/:vm_id | Unregister a VM |
 | GET | /api/v1/vms/:vm_id/attacks | Get attacks per VM |
 | POST | /api/v1/events | Receive events (agent/WEF) |
 | POST | /api/v1/block/per-vm | Block IP on specific VM |
 | GET | /api/v1/statistics/global | Global stats across VMs |
+| GET | /api/v1/health | Health check |
 
 ## Multi-VM Support
 

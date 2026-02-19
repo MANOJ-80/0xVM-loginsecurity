@@ -29,41 +29,7 @@ GO
 ```
 
 ### 1.3 Run Schema Scripts
-Execute `DATABASE_SCHEMA.md` queries in MSSQL Management Studio.
-
-### 1.4 Add VMSources Table (Multi-VM)
-```sql
-CREATE TABLE VMSources (
-    id INT IDENTITY(1,1) PRIMARY KEY,
-    vm_id VARCHAR(100) NOT NULL UNIQUE,
-    hostname NVARCHAR(256),
-    ip_address VARCHAR(45),
-    collection_method VARCHAR(20),  -- 'wef', 'agent'
-    status VARCHAR(20) DEFAULT 'active',  -- active, inactive, error
-    last_seen DATETIME2,
-    created_at DATETIME2 DEFAULT GETUTCDATE(),
-    
-    INDEX idx_vm_id (vm_id),
-    INDEX idx_status (status)
-);
-```
-
-### 1.5 Add PerVMThresholds Table (Multi-VM)
-```sql
-CREATE TABLE PerVMThresholds (
-    id INT IDENTITY(1,1) PRIMARY KEY,
-    vm_id VARCHAR(100) NOT NULL,
-    threshold INT DEFAULT 5,
-    time_window_minutes INT DEFAULT 5,
-    block_duration_minutes INT DEFAULT 60,
-    auto_block_enabled BIT DEFAULT 1,
-    created_at DATETIME2 DEFAULT GETUTCDATE(),
-    updated_at DATETIME2 DEFAULT GETUTCDATE(),
-    
-    FOREIGN KEY (vm_id) REFERENCES VMSources(vm_id),
-    UNIQUE (vm_id)
-);
-```
+Execute all `CREATE TABLE` and `INSERT` statements from [`DATABASE_SCHEMA.md`](DATABASE_SCHEMA.md) in MSSQL Management Studio. This creates all 7 tables (`FailedLoginAttempts`, `SuspiciousIPs`, `BlockedIPs`, `AttackStatistics`, `Settings`, `VMSources`, `PerVMThresholds`) and the stored procedures.
 
 ---
 
@@ -141,27 +107,35 @@ python service.py start
 
 ### Option A: Windows Event Forwarding (WEF)
 
-#### On Each Source VM:
+#### On Collector Server:
 ```powershell
-# Enable Windows Event Collector service
+# Enable Windows Event Collector service on the COLLECTOR
 Start-Service Wecsvc
 Set-Service Wecsvc -StartupType Automatic
-
-# Configure Security log to forward
-wevtutil sl Security /ca:O:BAG:SYD:(A;;0x80100009;;;AU)(A;;0x1;;;S-1-5-20)
 ```
 
-#### Create Subscription on Collector Server:
+#### On Each Source VM:
 ```powershell
-# Create subscription (run as Admin)
-wecutil -cs "SecurityEvents"
+# Enable WinRM on SOURCE VMs (required for WEF)
+Enable-PSRemoting -Force
+Set-Service WinRM -StartupType Automatic
+Start-Service WinRM
+
+# Allow inbound WinRM traffic
+New-NetFirewallRule -DisplayName "WinRM for WEF" -Direction Inbound -Protocol TCP -LocalPort 5985,5986 -Action Allow
 ```
 
 #### Create Subscription XML (subscription.xml):
+
+> **Note:** This uses `CollectorInitiated` mode because we list explicit
+> source VM addresses.  For `SourceInitiated` mode (where source VMs
+> register themselves via Group Policy), remove the `<EventSources>`
+> block and configure source VMs through GPO instead.
+
 ```xml
 <Subscription xmlns="http://schemas.microsoft.com/2006/03/windows/events/subscription">
     <SubscriptionId>FailedLogins</SubscriptionId>
-    <SubscriptionType>SourceInitiated</SubscriptionType>
+    <SubscriptionType>CollectorInitiated</SubscriptionType>
     <Description>Forward failed login events from all VMs</Description>
     <Enabled>true</Enabled>
     <EventSources>
@@ -175,7 +149,7 @@ wecutil -cs "SecurityEvents"
         </EventSource>
     </EventSources>
     <QueryList>
-        <Query>
+        <Query Path="Security">
             <Select>*[System[EventID=4625]]</Select>
         </Query>
     </QueryList>
@@ -187,10 +161,13 @@ wecutil -cs "SecurityEvents"
 </Subscription>
 ```
 
-#### Apply Subscription:
+#### Apply Subscription (on Collector):
 ```powershell
-wecutil -c subscription.xml
-wecutil -r FailedLogins
+# Create the subscription from XML file
+wecutil cs subscription.xml
+
+# Verify subscription status
+wecutil gs FailedLogins
 ```
 
 ### Option B: Agent-Based Collection
