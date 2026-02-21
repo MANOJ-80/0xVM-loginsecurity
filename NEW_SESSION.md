@@ -1224,4 +1224,26 @@ time). The Source VM is in IST (UTC+5:30), so every timestamp was
 - Verify the backend accepts events without errors (no 422 from
   extra fields)
 
+### Post-Testing Discovery: EvtSubscribe SignalEvent Never Fires
+
+After pushing Session 6 changes, testing on the VM revealed the agent
+went completely silent after "Real-time subscription active" — no log
+output at all, not even on timeout.  Events appeared in Event Viewer
+but the agent didn't capture them.
+
+**Root cause:** On this pywin32 build, `EvtSubscribe`'s `SignalEvent`
+is never set by the OS, so `WaitForSingleObject` blocks for the full
+timeout and then the `WAIT_TIMEOUT` branch only flushed the retry
+queue — it never pulled from the subscription.
+
+The earlier DIAG code (commit `729124a`) accidentally masked this by
+doing `_pull_events_from_subscription()` on every timeout.  When the
+DIAG code was removed in `ae035ce`, the workaround was lost.
+
+**Fix:** The `WAIT_TIMEOUT` branch now always calls
+`_pull_events_from_subscription()`.  This makes the signal an
+optimization (instant wake) rather than a requirement.  Events are
+guaranteed to be captured within `poll_interval` seconds even if the
+signal never fires.
+
 ---

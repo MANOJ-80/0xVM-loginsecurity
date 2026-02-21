@@ -464,8 +464,22 @@ class SecurityEventAgent:
                             self._flush_retry_queue()
 
                     elif result == win32con.WAIT_TIMEOUT:
-                        # Timeout — no new events, but check retry queue
-                        if self._retry_queue:
+                        # Timeout — pull from subscription as a safety net.
+                        # On some pywin32 builds the SignalEvent never fires
+                        # even though EvtNext returns events just fine.  By
+                        # always pulling on timeout we guarantee events are
+                        # captured within poll_interval seconds regardless
+                        # of whether the signal works.
+                        events = self._pull_events_from_subscription()
+                        if events:
+                            for ev in events:
+                                logger.info(
+                                    "Failed login: user=%s  ip=%s",
+                                    ev.get("username"),
+                                    ev.get("ip_address"),
+                                )
+                            self.send_events(events)
+                        elif self._retry_queue:
                             self._flush_retry_queue()
 
                     else:
