@@ -1322,14 +1322,11 @@ consistency within the procedure.
 
 ### Remaining Steps (User Action Required)
 
-1. **Run the updated stored procedure in SSMS** on the Collector VM
-   (`192.168.56.102`) — the SQL was provided and is in
-   `DATABASE_SCHEMA.md`.
-2. **Clean up existing duplicate rows** in `FailedLoginAttempts` — use
-   a CTE with `ROW_NUMBER()` partitioned by the natural key to delete
-   extra copies.
-3. **Re-run the stress test** to verify zero duplicates with the new
-   stored procedure.
+All completed:
+
+1. ~~Run the updated stored procedure in SSMS~~ — Done
+2. ~~Clean up existing duplicate rows~~ — Done
+3. ~~Re-run the stress test~~ — Done, zero duplicates confirmed
 
 ### Design Notes
 
