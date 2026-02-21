@@ -93,8 +93,8 @@ The Collector VM must allow incoming connections on port 3000.
 1. In the `agent` folder, run: `python main.py`
 2. You should see logs like:
    ```
-   [INFO] Agent started  vm_id=vm-001  hostname=SOURCE-PC
-   [INFO] Polling every 2 second(s)...
+    [INFO] Agent started  vm_id=vm-001  hostname=SOURCE-PC
+    [INFO] Polling every 10 second(s)...
    ```
 
 ---
@@ -162,5 +162,19 @@ If you reach this point, the core monitoring logic is 100% verified.
 ## Part 6: Automating the Windows Firewall Blocks (Future/Optional)
 
 Once the above is working, the next logical step is to have a script that constantly polls the API using the `/suspicious-ips` endpoint and creates a Windows Firewall rule to block them via PowerShell `New-NetFirewallRule`.
-And you are done!
+
+---
+
+## Cleanup Notes
+
+If you are redeploying the agent after upgrading from an older version, delete
+these legacy files from the agent folder if they exist (they are no longer used):
+
+- `vm-001_bookmark.xml` (replaced by fingerprint-based dedup)
+- `vm-001_last_ts.txt` (replaced by reverse-direction query with early-exit)
+
+The current agent persists dedup state only in `vm-001_seen.json`.
+
+---
+
 And you are done!

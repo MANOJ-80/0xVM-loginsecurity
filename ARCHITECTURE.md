@@ -14,7 +14,7 @@
 │ Event 4625   │                │ Event 4625   │                │ Event 4625   │
 └──────┬───────┘                └──────┬───────┘                └──────┬───────┘
        │                                │                               │
-       └─────────────── WEF / Agent Collection ─────────────────────────┘
+       └──────────────── Agent Collection (HTTP POST) ─────────────────────┘
                                       │
                                       ▼
                     ┌───────────────────────────────────────────────────────┐
@@ -52,26 +52,28 @@
                          └──────────────────┘
 ```
 
-## Collection Modes
+## Collection Mode
 
-### 1. WEF (Agentless)
-- Source VMs forward Security events to collector.
-- Best for domain-managed Windows environments.
-
-### 2. Agent-Based
-- Lightweight agent on each VM reads Event ID 4625.
-- Agent sends normalized events to `/api/v1/events`.
+### Agent-Based (Current Implementation)
+- Lightweight Python agent on each VM reads Event ID 4625 using the
+  Windows Event Log API (`win32evtlog.EvtQuery` with reverse-direction flag).
+- Uses SHA-256 fingerprint-based dedup (`SystemTime + ip + username + source_port`)
+  to guarantee each event is sent exactly once, persisted to `<vm_id>_seen.json`.
+- Reads newest events first and stops early when all events in a batch have
+  already been seen, avoiding full log scans.
+- Agent sends normalized events to `/api/v1/events` via HTTP POST.
 - Best for workgroup or mixed environments.
 
 ## Data Flow
 
 1. Failed login occurs on a source VM (Event ID 4625).
-2. Collector receives the event via WEF or agent.
-3. Collector normalizes payload and adds `source_vm_id`.
-4. Detection engine evaluates global and per-VM thresholds.
-5. Backend writes event/state records to MSSQL.
-6. If thresholds are exceeded, backend inserts block record(s) and calls firewall adapter.
-7. Dashboard reads `/api/v1` endpoints for global and VM-specific insights.
+2. Agent on the VM detects the event via reverse-direction query.
+3. Agent deduplicates using fingerprint set and sends new events to collector.
+4. Collector normalizes payload and adds `source_vm_id`.
+5. Detection engine evaluates global and per-VM thresholds.
+6. Backend writes event/state records to MSSQL via stored procedure.
+7. If thresholds are exceeded, backend inserts block record(s) and calls firewall adapter.
+8. Dashboard reads `/api/v1` endpoints for global and VM-specific insights.
 
 ## API Surface (v1)
 
@@ -91,9 +93,9 @@
 - `POST /api/v1/block/per-vm`
 - `GET /api/v1/health`
 
-## Auth Model (MVP)
+## Auth Model
 
-- Network-level access control is used for MVP.
+- Network-level access control is used for the current deployment.
 - Trusted VM IPs are allowed to reach ingestion endpoint.
 - Admin endpoints are reachable only from trusted admin network.
 

@@ -781,7 +781,7 @@ System now:
 You implemented:
 
 ✔ Windows Security Event Monitoring
-✔ Event Bookmark Handling
+✔ Fingerprint-Based Event Dedup
 ✔ Failed Login Parsing
 ✔ HTTP Event Forwarding
 ✔ Retry Queue with Safe Flush
@@ -858,7 +858,7 @@ This is real security engineering work.
 1. Firewall misconfig = silent failures
 2. Retry logic can break stable systems
 3. Poll interval matters
-4. Windows event bookmark handling is critical
+4. Fingerprint-based dedup is critical for reliable event tracking
 5. Network lab configuration matters
 6. Testing with real attack simulation is best validation
 
@@ -979,5 +979,116 @@ runs regardless of success or failure.
 - Agent captured all 3 events, sent to collector, stored in DB
 - Dedup correctly filtered duplicate reads (e.g., `Read 6 event(s), 0 new`)
 - Backend returned HTTP 200, events visible in SSMS
+
+---
+
+# Session 4 Fixes (Performance, Early-Exit, Crash Guards, Backend Cleanup)
+
+## Performance: Removed XPath timestamp filtering
+
+### Root Cause
+
+The timestamp-based XPath query narrowing added in Session 3
+(`TimeCreated[@SystemTime>='<last_ts>']`) caused extremely slow event
+retrieval on Windows. The Windows Event Log API takes noticeably longer
+to evaluate `TimeCreated` predicates compared to a simple `EventID=4625`
+query, resulting in delayed event detection.
+
+### Fix Applied (agent/main.py)
+
+- Removed `TimeCreated` from the XPath query entirely.
+- Switched to `EvtQueryReverseDirection` flag so the newest events are
+  read first.
+- Added an **early-exit** mechanism: events are read in batches; when an
+  entire batch consists of events whose fingerprints are already in
+  `_seen_events`, reading stops immediately. This avoids iterating
+  through the entire event log history while still guaranteeing new
+  events are never missed.
+- Removed `vm-001_last_ts.txt` persistence (no longer needed).
+
+### Result
+
+Event detection is now near-instant. The agent reads only as far back as
+needed to find new events, then stops.
+
+## Bug: Early-exit batch slicing produced wrong results
+
+### Root Cause
+
+The early-exit check used `all_events[-len(handles):]` to get the current
+batch of events, but `all_events` only contains IP-filtered events while
+`len(handles)` counts raw (unfiltered) events from `EvtNext()`. This
+caused the slice to reference the wrong portion of the list.
+
+Additionally, `all(fp in self._seen_events for fp in [])` returns `True`
+(vacuous truth), so an empty batch after IP filtering would cause a false
+early exit — silently dropping all subsequent events.
+
+### Fix Applied (agent/main.py)
+
+- Track batch boundaries with `batch_start = len(all_events)` before
+  processing each batch.
+- Use `all_events[batch_start:]` to get exactly the events from the
+  current batch.
+- Skip the early-exit check when `batch_start == len(all_events)` (no
+  new events passed IP filtering in this batch).
+
+## Bug: `EvtQuery` crash on bad parameters
+
+### Root Cause
+
+If `win32evtlog.EvtQuery()` raised an exception, the variable
+`query_handle` was never assigned. The `finally` block then tried to
+close it, causing a `NameError` that masked the original error.
+
+### Fix Applied (agent/main.py)
+
+- Wrapped `EvtQuery()` in its own `try/except` block.
+- On failure, logs the error and returns `[]` immediately.
+- The main read loop's `finally` block only attempts cleanup on handles
+  that were actually assigned.
+
+## Bug: `cursor.description` is None in `get_vm_attacks`
+
+### Root Cause
+
+If a stored procedure returns no result set (e.g., only performs
+`INSERT`/`UPDATE`), `cursor.description` is `None`. The list
+comprehension `[column[0] for column in cursor.description]` crashes
+with `TypeError: 'NoneType' is not iterable`.
+
+### Fix Applied (backend/main.py)
+
+- Added a guard: if `cursor.description is None`, return an empty list
+  instead of attempting to build column names.
+
+## Cleanup: SSE feed JSON serialization
+
+### Root Cause
+
+The SSE `/api/v1/feed` endpoint used `str(event_data)` to serialize
+event data. Python's `str()` produces repr-style output (single quotes,
+`True`/`False` instead of `true`/`false`) which is not valid JSON.
+
+### Fix Applied (backend/main.py)
+
+- Changed to `json.dumps(event_data)` for spec-compliant JSON output.
+
+## Cleanup: Removed unused imports in backend
+
+- Removed unused `datetime` and `BackgroundTasks` imports from
+  `backend/main.py`.
+
+## Cleanup: `isdigit()` crash on empty string
+
+### Root Cause
+
+`threshold_str.isdigit()` was called without first checking if the
+string was empty after `.strip()`. An empty or whitespace-only query
+parameter would pass through and cause unexpected behavior.
+
+### Fix Applied (backend/main.py)
+
+- Added `threshold_str.strip()` check before calling `.isdigit()`.
 
 ---
