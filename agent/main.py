@@ -188,8 +188,8 @@ class SecurityEventAgent:
             query,
         )
 
-        logger.info(
-            "EvtSubscribe created: signal_event=%s, subscription=%s",
+        logger.debug(
+            "EvtSubscribe handles: signal_event=%s, subscription=%s",
             signal_event,
             subscription_handle,
         )
@@ -242,7 +242,7 @@ class SecurityEventAgent:
 
         if all_events:
             logger.info(
-                "Read %d event(s) from log, %d are new (unseen)",
+                "Subscription: %d event(s) received, %d are new (unseen)",
                 len(all_events),
                 len(new_events),
             )
@@ -393,23 +393,6 @@ class SecurityEventAgent:
 
         logger.info("Real-time subscription active (EvtSubscribe)")
 
-        # --- Diagnostic: verify event handle plumbing works ---
-        # Manually signal the event and check if WaitForSingleObject sees it.
-        # This isolates whether the issue is our event handle or EvtSubscribe.
-        win32event.SetEvent(self._signal_event)
-        diag = win32event.WaitForSingleObject(self._signal_event, 0)
-        if diag == win32con.WAIT_OBJECT_0:
-            logger.info(
-                "DIAG: Manual SetEvent -> WaitForSingleObject works (handle plumbing OK)"
-            )
-            win32event.ResetEvent(self._signal_event)
-            # Drain any events that arrived between subscription creation and now
-            self._pull_events_from_subscription()
-        else:
-            logger.error(
-                "DIAG: Manual SetEvent failed! WaitForSingleObject returned %d", diag
-            )
-
         # Use poll_interval as the WaitForSingleObject timeout (in ms).
         # This means: wake instantly on new events, but also wake every
         # poll_interval seconds to flush retry queue if needed.
@@ -424,9 +407,7 @@ class SecurityEventAgent:
 
                     if result == win32con.WAIT_OBJECT_0:
                         # Signal fired — new events available
-                        logger.info(
-                            "Signal received — pulling events from subscription"
-                        )
+                        logger.debug("Signal received — pulling events")
                         # Reset the manual-reset event before pulling,
                         # so any events arriving during pull will re-signal.
                         win32event.ResetEvent(self._signal_event)
@@ -443,25 +424,8 @@ class SecurityEventAgent:
                             self._flush_retry_queue()
 
                     elif result == win32con.WAIT_TIMEOUT:
-                        # Timeout — no new events via signal.
-                        # DIAG: Also try pulling directly from the subscription
-                        # to detect if events are there but signal isn't firing.
-                        events = self._pull_events_from_subscription()
-                        if events:
-                            logger.warning(
-                                "DIAG: Signal did NOT fire, but %d event(s) "
-                                "found by direct pull! EvtSubscribe signaling "
-                                "is broken on this system.",
-                                len(events),
-                            )
-                            for ev in events:
-                                logger.info(
-                                    "Failed login: user=%s  ip=%s",
-                                    ev.get("username"),
-                                    ev.get("ip_address"),
-                                )
-                            self.send_events(events)
-                        elif self._retry_queue:
+                        # Timeout — no new events, but check retry queue
+                        if self._retry_queue:
                             self._flush_retry_queue()
 
                     else:
