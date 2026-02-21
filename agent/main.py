@@ -171,14 +171,27 @@ class SecurityEventAgent:
         """
         query = f"*[System[EventID={self.event_id}]]"
 
-        # Auto-reset event: resets to non-signaled after WaitForSingleObject returns
-        signal_event = win32event.CreateEvent(None, False, False, None)
+        # Manual-reset event (2nd param=True): stays signaled until we
+        # explicitly reset it. This avoids a race where auto-reset could
+        # consume the signal before we call EvtNext.
+        signal_event = win32event.CreateEvent(None, True, False, None)
 
+        # pywin32 EvtSubscribe signature:
+        #   EvtSubscribe(ChannelPath, Flags, SignalEvent, Callback,
+        #                Context, Query, Session, Bookmark)
         subscription_handle = win32evtlog.EvtSubscribe(
-            ChannelPath="Security",
-            Flags=win32evtlog.EvtSubscribeToFutureEvents,
-            SignalEvent=signal_event,
-            Query=query,
+            "Security",
+            win32evtlog.EvtSubscribeToFutureEvents,
+            signal_event,
+            None,  # Callback (not used in pull mode)
+            None,  # Context
+            query,
+        )
+
+        logger.info(
+            "EvtSubscribe created: signal_event=%s, subscription=%s",
+            signal_event,
+            subscription_handle,
         )
 
         return signal_event, subscription_handle
@@ -393,7 +406,12 @@ class SecurityEventAgent:
 
                     if result == win32con.WAIT_OBJECT_0:
                         # Signal fired — new events available
-                        logger.debug("Signal received — pulling events")
+                        logger.info(
+                            "Signal received — pulling events from subscription"
+                        )
+                        # Reset the manual-reset event before pulling,
+                        # so any events arriving during pull will re-signal.
+                        win32event.ResetEvent(self._signal_event)
                         events = self._pull_events_from_subscription()
                         if events:
                             for ev in events:
