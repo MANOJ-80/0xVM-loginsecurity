@@ -1092,3 +1092,71 @@ parameter would pass through and cause unexpected behavior.
 - Added `threshold_str.strip()` check before calling `.isdigit()`.
 
 ---
+
+# Session 5: Real-Time Event Detection (EvtSubscribe)
+
+## Problem: Polling-based detection has inherent delay
+
+### Root Cause
+
+The agent used `time.sleep(poll_interval)` between `EvtQuery` scans.
+Even with `poll_interval=10`, there is always a 0–10 second gap between
+when an attack occurs and when the agent detects it. For a production
+security monitor this is unacceptable — events must be detected the
+instant they are written to the Windows Security log.
+
+### Fix Applied (agent/main.py)
+
+Replaced the polling architecture with **`EvtSubscribe` pull-model
+subscription**:
+
+1. **Startup phase:** On launch, the agent performs a one-time
+   `EvtQuery` scan (reverse-direction with early-exit) to catch any
+   events generated while the agent was offline. These are deduped
+   against `_seen_events` and sent to the collector.
+
+2. **Subscription phase:** The agent creates an `EvtSubscribe`
+   subscription with `EvtSubscribeToFutureEvents` and a Win32
+   auto-reset `SignalEvent`. The OS signals this event handle the
+   instant a matching event (EventID=4625) is written to the log.
+
+3. **Main loop:** Uses `WaitForSingleObject(signal_event, timeout_ms)`
+   instead of `time.sleep()`. This wakes **instantly** when a new
+   event arrives. The `poll_interval` timeout is kept only as a
+   fallback for retry queue flushing.
+
+4. **Pull model chosen over push (callback) model** because:
+   - We control the thread (no GIL contention)
+   - We can batch multiple events with `EvtNext()`
+   - Event handles are ours to manage (consistent with existing code)
+   - No risk of exceptions being silently swallowed
+
+5. **Automatic fallback:** If `EvtSubscribe` fails (pywin32 compat
+   issue), the agent logs a warning and falls back to the old polling
+   loop using `_scan_existing_events()`.
+
+### Architecture Summary
+
+```
+Agent startup
+  │
+  ├── Phase 1: EvtQuery scan (catch missed events)
+  │   └── Reverse-direction + fingerprint dedup + early-exit
+  │
+  └── Phase 2: EvtSubscribe (real-time)
+      └── WaitForSingleObject loop
+          ├── WAIT_OBJECT_0 → EvtNext → parse → dedup → send
+          └── WAIT_TIMEOUT  → flush retry queue
+```
+
+### New Dependencies
+
+- `win32event` (part of pywin32, already installed)
+- `win32con` (part of pywin32, already installed)
+
+### Result
+
+Event detection is now **instant** — zero polling delay. The agent
+wakes up the moment Windows writes a 4625 event to the Security log.
+
+---

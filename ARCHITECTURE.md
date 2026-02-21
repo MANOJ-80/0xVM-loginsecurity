@@ -55,19 +55,22 @@
 ## Collection Mode
 
 ### Agent-Based (Current Implementation)
-- Lightweight Python agent on each VM reads Event ID 4625 using the
-  Windows Event Log API (`win32evtlog.EvtQuery` with reverse-direction flag).
+- Lightweight Python agent on each VM monitors Event ID 4625 using
+  `EvtSubscribe` (pull-model subscription with `SignalEvent`). The OS
+  notifies the agent the instant a matching event is written to the log
+  — zero polling delay.
+- On startup, performs a one-time `EvtQuery` scan to catch events
+  generated while the agent was offline.
 - Uses SHA-256 fingerprint-based dedup (`SystemTime + ip + username + source_port`)
   to guarantee each event is sent exactly once, persisted to `<vm_id>_seen.json`.
-- Reads newest events first and stops early when all events in a batch have
-  already been seen, avoiding full log scans.
 - Agent sends normalized events to `/api/v1/events` via HTTP POST.
+- Falls back to polling mode automatically if `EvtSubscribe` is unavailable.
 - Best for workgroup or mixed environments.
 
 ## Data Flow
 
 1. Failed login occurs on a source VM (Event ID 4625).
-2. Agent on the VM detects the event via reverse-direction query.
+2. Agent on the VM detects the event instantly via EvtSubscribe subscription.
 3. Agent deduplicates using fingerprint set and sends new events to collector.
 4. Collector normalizes payload and adds `source_vm_id`.
 5. Detection engine evaluates global and per-VM thresholds.

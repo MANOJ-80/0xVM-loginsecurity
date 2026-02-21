@@ -15,6 +15,14 @@ except ImportError:
     print("Warning: win32evtlog is not available. Please run on Windows.")
 
 try:
+    import win32event
+    import win32con
+except ImportError:
+    win32event = None
+    win32con = None
+    print("Warning: win32event is not available. Please run on Windows.")
+
+try:
     import ctypes
 
     _EvtClose = None
@@ -26,7 +34,7 @@ except ImportError:
 
 def close_evt_handle(handle):
     """Close event handle - works with or without pywin32's EvtClose"""
-    if not handle:
+    if handle is None:
         return
     if win32evtlog and hasattr(win32evtlog, "EvtClose"):
         try:
@@ -56,6 +64,10 @@ class SecurityEventAgent:
     Monitors local Windows Security Event Log for Event ID 4625
     (failed logon) and sends normalized events to the central
     collector API.
+
+    Uses EvtSubscribe with a pull-model (SignalEvent) for real-time
+    event detection — the OS signals the agent the instant a matching
+    event is written to the log.
     """
 
     def __init__(self, config):
@@ -70,6 +82,10 @@ class SecurityEventAgent:
         # Dedup: track fingerprints of events we already sent
         self._seen_path = f"{self.vm_id}_seen.json"
         self._seen_events = self._load_seen()
+
+        # Subscription handles (set in run())
+        self._signal_event = None
+        self._subscription_handle = None
 
     # Maximum number of fingerprints to keep in the seen set.
     # Prevents unbounded memory growth on long-running agents.
@@ -92,8 +108,6 @@ class SecurityEventAgent:
         """Persist seen fingerprints to disk so restarts don't re-send."""
         try:
             # Cap the set to prevent unbounded growth on disk/memory.
-            # With a small number of 4625 events this rarely triggers,
-            # but protects against machines under sustained brute-force.
             if len(self._seen_events) > self._MAX_SEEN:
                 trimmed = list(self._seen_events)[-self._MAX_SEEN :]
                 self._seen_events = set(trimmed)
@@ -144,56 +158,62 @@ class SecurityEventAgent:
     # IPs that should be ignored (localhost / loopback noise)
     _IGNORED_IPS = frozenset({"-", "::1", "127.0.0.1", "0.0.0.0"})
 
-    def query_new_events(self):
-        if not win32evtlog:
-            logger.warning("Skipping event collection - not on Windows")
-            return []
+    def _create_subscription(self):
+        """
+        Create an EvtSubscribe pull-subscription on the Security log.
 
-        # Simple EventID filter — Windows handles this fast.
-        # Dedup layer filters out already-sent events in O(1) per event.
+        Uses EvtSubscribeToFutureEvents so we only get events that occur
+        after the subscription is created. On first startup, existing
+        events are already in _seen_events (loaded from disk). On fresh
+        installs, we do a one-time historical scan first (see run()).
+
+        Returns (signal_event, subscription_handle).
+        """
         query = f"*[System[EventID={self.event_id}]]"
-        flags = win32evtlog.EvtQueryChannelPath | win32evtlog.EvtQueryReverseDirection
 
-        try:
-            query_handle = win32evtlog.EvtQuery("Security", flags, query)
-        except Exception as e:
-            logger.error("EvtQuery failed: %s", e)
+        # Auto-reset event: resets to non-signaled after WaitForSingleObject returns
+        signal_event = win32event.CreateEvent(None, False, False, None)
+
+        subscription_handle = win32evtlog.EvtSubscribe(
+            ChannelPath="Security",
+            Flags=win32evtlog.EvtSubscribeToFutureEvents,
+            SignalEvent=signal_event,
+            Query=query,
+        )
+
+        return signal_event, subscription_handle
+
+    def _pull_events_from_subscription(self):
+        """
+        Pull all available events from the subscription handle.
+        Returns a list of parsed, deduped, IP-filtered event dicts
+        ready to send.
+        """
+        if not self._subscription_handle:
             return []
 
         all_events = []
 
-        try:
-            while True:
+        while True:
+            try:
+                handles = win32evtlog.EvtNext(self._subscription_handle, 50, -1, 0)
+            except Exception:
+                break
+            if not handles:
+                break
+
+            for h in handles:
                 try:
-                    handles = win32evtlog.EvtNext(query_handle, 50, -1, 0)
-                except Exception:
-                    break
-                if not handles:
-                    break
-
-                # Track how many non-filtered events came from THIS batch
-                batch_start = len(all_events)
-
-                for h in handles:
                     xml_string = win32evtlog.EvtRender(h, win32evtlog.EvtRenderEventXml)
-                    try:
-                        parsed = self.parse_event_xml(xml_string)
-                        ip = parsed.get("ip_address") or "-"
-                        if ip not in self._IGNORED_IPS:
-                            all_events.append(parsed)
-                    except Exception as exc:
-                        logger.warning("Failed to parse event XML: %s", exc)
-
-                # Early exit: since we read newest-first (ReverseDirection),
-                # once an entire batch of non-filtered events is already seen,
-                # everything older is guaranteed seen too.
-                batch_events = all_events[batch_start:]
-                if batch_events:
-                    batch_fps = [self._event_fingerprint(ev) for ev in batch_events]
-                    if all(fp in self._seen_events for fp in batch_fps):
-                        break
-        finally:
-            close_evt_handle(query_handle)
+                    parsed = self.parse_event_xml(xml_string)
+                    ip = parsed.get("ip_address") or "-"
+                    if ip not in self._IGNORED_IPS:
+                        all_events.append(parsed)
+                except Exception as exc:
+                    logger.warning("Failed to parse event XML: %s", exc)
+                finally:
+                    # We own these handles in pull mode — must close them
+                    close_evt_handle(h)
 
         # --- Dedup: only return events we haven't sent before ---
         new_events = []
@@ -211,6 +231,79 @@ class SecurityEventAgent:
             )
 
         # Persist seen set after filtering
+        if new_events:
+            self._save_seen()
+
+        return new_events
+
+    def _scan_existing_events(self):
+        """
+        One-time scan of existing 4625 events at startup.
+        Uses EvtQuery with ReverseDirection + early-exit on seen events
+        to quickly catch any events that were generated while the agent
+        was offline.
+        """
+        query = f"*[System[EventID={self.event_id}]]"
+        flags = win32evtlog.EvtQueryChannelPath | win32evtlog.EvtQueryReverseDirection
+
+        try:
+            query_handle = win32evtlog.EvtQuery("Security", flags, query)
+        except Exception as e:
+            logger.error("EvtQuery failed during startup scan: %s", e)
+            return []
+
+        all_events = []
+
+        try:
+            while True:
+                try:
+                    handles = win32evtlog.EvtNext(query_handle, 50, -1, 0)
+                except Exception:
+                    break
+                if not handles:
+                    break
+
+                batch_start = len(all_events)
+
+                for h in handles:
+                    try:
+                        xml_string = win32evtlog.EvtRender(
+                            h, win32evtlog.EvtRenderEventXml
+                        )
+                        parsed = self.parse_event_xml(xml_string)
+                        ip = parsed.get("ip_address") or "-"
+                        if ip not in self._IGNORED_IPS:
+                            all_events.append(parsed)
+                    except Exception as exc:
+                        logger.warning("Failed to parse event XML: %s", exc)
+                    finally:
+                        close_evt_handle(h)
+
+                # Early exit: newest-first, so once a full batch is seen,
+                # everything older is guaranteed seen too.
+                batch_events = all_events[batch_start:]
+                if batch_events:
+                    batch_fps = [self._event_fingerprint(ev) for ev in batch_events]
+                    if all(fp in self._seen_events for fp in batch_fps):
+                        break
+        finally:
+            close_evt_handle(query_handle)
+
+        # --- Dedup ---
+        new_events = []
+        for ev in all_events:
+            fp = self._event_fingerprint(ev)
+            if fp not in self._seen_events:
+                new_events.append(ev)
+                self._seen_events.add(fp)
+
+        if all_events:
+            logger.info(
+                "Startup scan: %d event(s) in log, %d are new (unseen)",
+                len(all_events),
+                len(new_events),
+            )
+
         if new_events:
             self._save_seen()
 
@@ -249,10 +342,105 @@ class SecurityEventAgent:
 
     def run(self):
         logger.info("Agent started  vm_id=%s  hostname=%s", self.vm_id, self.hostname)
+
+        if not win32evtlog or not win32event or not win32con:
+            logger.error("Cannot run: win32evtlog/win32event/win32con not available")
+            return
+
+        # --- Phase 1: Scan for events generated while agent was offline ---
+        logger.info("Scanning existing events...")
+        try:
+            missed_events = self._scan_existing_events()
+            if missed_events:
+                for ev in missed_events:
+                    logger.info(
+                        "Failed login: user=%s  ip=%s",
+                        ev.get("username"),
+                        ev.get("ip_address"),
+                    )
+                self.send_events(missed_events)
+        except Exception as exc:
+            logger.exception("Startup scan failed: %s", exc)
+
+        # --- Phase 2: Subscribe for real-time events ---
+        try:
+            self._signal_event, self._subscription_handle = self._create_subscription()
+        except Exception as exc:
+            logger.exception("EvtSubscribe failed: %s", exc)
+            logger.error(
+                "Falling back to polling mode (poll_interval=%ds)",
+                self.poll_interval,
+            )
+            self._run_polling_fallback()
+            return
+
+        logger.info("Real-time subscription active (EvtSubscribe)")
+        # Use poll_interval as the WaitForSingleObject timeout (in ms).
+        # This means: wake instantly on new events, but also wake every
+        # poll_interval seconds to flush retry queue if needed.
+        wait_timeout_ms = self.poll_interval * 1000
+
+        try:
+            while True:
+                try:
+                    result = win32event.WaitForSingleObject(
+                        self._signal_event, wait_timeout_ms
+                    )
+
+                    if result == win32con.WAIT_OBJECT_0:
+                        # Signal fired — new events available
+                        events = self._pull_events_from_subscription()
+                        if events:
+                            for ev in events:
+                                logger.info(
+                                    "Failed login: user=%s  ip=%s",
+                                    ev.get("username"),
+                                    ev.get("ip_address"),
+                                )
+                            self.send_events(events)
+                        elif self._retry_queue:
+                            self._flush_retry_queue()
+
+                    elif result == win32con.WAIT_TIMEOUT:
+                        # Timeout — no new events, but check retry queue
+                        if self._retry_queue:
+                            self._flush_retry_queue()
+
+                    else:
+                        # WAIT_FAILED or WAIT_ABANDONED — unexpected
+                        logger.error(
+                            "WaitForSingleObject returned unexpected: %d",
+                            result,
+                        )
+                        time.sleep(self.poll_interval)
+
+                except Exception as exc:
+                    logger.exception("Error in subscription loop: %s", exc)
+                    time.sleep(self.poll_interval)
+        finally:
+            self._cleanup_subscription()
+
+    def _cleanup_subscription(self):
+        """Release subscription and signal event handles."""
+        if self._subscription_handle:
+            close_evt_handle(self._subscription_handle)
+            self._subscription_handle = None
+        if self._signal_event:
+            try:
+                win32event.CloseHandle(self._signal_event)
+            except Exception:
+                pass
+            self._signal_event = None
+
+    def _run_polling_fallback(self):
+        """
+        Fallback polling loop if EvtSubscribe is unavailable.
+        Uses the same EvtQuery approach from previous versions.
+        """
         logger.info("Polling every %d second(s)...", self.poll_interval)
         while True:
             try:
-                events = self.query_new_events()
+                events = self._scan_existing_events()
                 if events:
                     for ev in events:
                         logger.info(

@@ -94,8 +94,11 @@ The Collector VM must allow incoming connections on port 3000.
 2. You should see logs like:
    ```
     [INFO] Agent started  vm_id=vm-001  hostname=SOURCE-PC
-    [INFO] Polling every 10 second(s)...
+    [INFO] Scanning existing events...
+    [INFO] Startup scan: 12 event(s) in log, 0 are new (unseen)
+    [INFO] Real-time subscription active (EvtSubscribe)
    ```
+   The agent is now listening for events in real-time — no polling delay.
 
 ---
 
