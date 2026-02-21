@@ -74,7 +74,7 @@ async def receive_events(req: ReceiveEventsRequest):
             cursor.execute("{CALL sp_RecordFailedLoginMultiVM(?, ?, ?, ?, ?, ?, ?)}", 
                 (ev.ip_address, ev.username, req.hostname, 
                  int(ev.logon_type) if ev.logon_type and ev.logon_type.isdigit() else None, 
-                 int(ev.status, 16) if ev.status and ev.status.startswith('0x') else None,
+                 ev.status if ev.status else None,
                  int(ev.source_port) if ev.source_port and ev.source_port.isdigit() else None,
                  req.vm_id)
             )

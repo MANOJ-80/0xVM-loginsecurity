@@ -32,7 +32,7 @@ class SecurityEventAgent:
     def __init__(self, config):
         self.vm_id = config['vm_id']
         self.collector_url = config['collector_url']
-        self.poll_interval = config.get('poll_interval', 2)
+        self.poll_interval = config.get('poll_interval', 10)
         self.event_id = config.get('event_id', 4625)
         self.hostname = socket.gethostname()
 
@@ -121,14 +121,14 @@ class SecurityEventAgent:
 
         return new_events
 
-    def send_events(self, events):
+    def send_events(self, events, is_retry=False):
         payload = {
             'vm_id': self.vm_id,
             'hostname': self.hostname,
             'events': events,
         }
         try:
-            response = requests.post(self.collector_url, json=payload, verify=False, timeout=10)
+            response = requests.post(self.collector_url, json=payload, verify=False, timeout=30)
             if response.status_code == 200:
                 logger.info("Sent %d event(s) to collector", len(events))
                 return True
@@ -137,15 +137,17 @@ class SecurityEventAgent:
         except Exception as e:
             logger.error("Failed to reach collector: %s", e)
 
-        self._retry_queue.extend(events)
+        if not is_retry:
+            self._retry_queue.extend(events)
         return False
 
     def _flush_retry_queue(self):
         if not self._retry_queue: return
         batch = list(self._retry_queue)
-        self._retry_queue.clear()
         logger.info("Retrying %d queued event(s)...", len(batch))
-        self.send_events(batch)
+        success = self.send_events(batch, is_retry=True)
+        if success:
+            self._retry_queue.clear()
 
     def run(self):
         logger.info("Agent started  vm_id=%s  hostname=%s", self.vm_id, self.hostname)
@@ -157,7 +159,8 @@ class SecurityEventAgent:
                     for ev in events:
                         logger.info("Failed login: user=%s  ip=%s", ev.get('username'), ev.get('ip_address'))
                     self.send_events(events)
-                self._flush_retry_queue()
+                elif self._retry_queue:
+                    self._flush_retry_queue()
             except Exception as exc:
                 logger.exception("Unexpected error: %s", exc)
             time.sleep(self.poll_interval)
