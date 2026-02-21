@@ -67,32 +67,9 @@ class SecurityEventAgent:
 
         self._retry_queue = collections.deque(maxlen=5000)
 
-        # Track the last event timestamp so we can narrow the query
-        self._last_ts_path = f"{self.vm_id}_last_ts.txt"
-        self._last_timestamp = self._load_last_timestamp()
-
         # Dedup: track fingerprints of events we already sent
         self._seen_path = f"{self.vm_id}_seen.json"
         self._seen_events = self._load_seen()
-
-    def _load_last_timestamp(self):
-        """Load the last processed event timestamp from disk."""
-        if os.path.exists(self._last_ts_path):
-            try:
-                with open(self._last_ts_path, "r") as f:
-                    ts = f.read().strip()
-                if ts:
-                    return ts
-            except Exception:
-                logger.warning("Could not load last timestamp; reading all events")
-        return None
-
-    def _save_last_timestamp(self, ts):
-        """Persist the latest event timestamp to disk."""
-        if not ts:
-            return
-        with open(self._last_ts_path, "w") as f:
-            f.write(ts)
 
     # Maximum number of fingerprints to keep in the seen set.
     # Prevents unbounded memory growth on long-running agents.
@@ -114,14 +91,10 @@ class SecurityEventAgent:
     def _save_seen(self):
         """Persist seen fingerprints to disk so restarts don't re-send."""
         try:
-            # If the set exceeds the cap, trim it before saving.
-            # Since we also have timestamp-based query narrowing, old
-            # fingerprints for events before _last_timestamp will never
-            # be queried again anyway, so trimming is safe.
+            # Cap the set to prevent unbounded growth on disk/memory.
+            # With a small number of 4625 events this rarely triggers,
+            # but protects against machines under sustained brute-force.
             if len(self._seen_events) > self._MAX_SEEN:
-                # Keep a random subset - the timestamp query already
-                # prevents re-reading old events, so this is just
-                # belt-and-suspenders dedup for the latest window.
                 trimmed = list(self._seen_events)[-self._MAX_SEEN :]
                 self._seen_events = set(trimmed)
 
@@ -176,31 +149,14 @@ class SecurityEventAgent:
             logger.warning("Skipping event collection - not on Windows")
             return []
 
-        # Build XPath query - if we have a last timestamp, only query newer events
-        if self._last_timestamp:
-            # Windows XPath uses timediff in milliseconds.
-            # Instead, we query all 4625s and let dedup handle exact filtering,
-            # BUT we use a time-range XPath to avoid re-reading ancient events.
-            # We ask for events >= last_timestamp by using the SystemTime attribute.
-            query = (
-                f"*[System[EventID={self.event_id}"
-                f" and TimeCreated[@SystemTime>='{self._last_timestamp}']]]"
-            )
-        else:
-            query = f"*[System[EventID={self.event_id}]]"
+        # Simple EventID filter — Windows handles this fast.
+        # Dedup layer filters out already-sent events in O(1) per event.
+        query = f"*[System[EventID={self.event_id}]]"
+        flags = win32evtlog.EvtQueryChannelPath | win32evtlog.EvtQueryReverseDirection
 
-        flags = win32evtlog.EvtQueryChannelPath | win32evtlog.EvtQueryForwardDirection
-
-        try:
-            query_handle = win32evtlog.EvtQuery("Security", flags, query)
-        except Exception as e:
-            logger.warning("EvtQuery failed (bad timestamp filter?): %s", e)
-            # Fall back to unfiltered query
-            query = f"*[System[EventID={self.event_id}]]"
-            query_handle = win32evtlog.EvtQuery("Security", flags, query)
+        query_handle = win32evtlog.EvtQuery("Security", flags, query)
 
         all_events = []
-        latest_timestamp = self._last_timestamp
 
         try:
             while True:
@@ -218,21 +174,21 @@ class SecurityEventAgent:
                         ip = parsed.get("ip_address") or "-"
                         if ip not in self._IGNORED_IPS:
                             all_events.append(parsed)
-                            # Track the latest timestamp we've seen
-                            ev_ts = parsed.get("timestamp")
-                            if ev_ts and (
-                                latest_timestamp is None or ev_ts > latest_timestamp
-                            ):
-                                latest_timestamp = ev_ts
                     except Exception as exc:
                         logger.warning("Failed to parse event XML: %s", exc)
+
+                # If all events in this batch are already seen, stop early.
+                # Since we read newest-first (ReverseDirection), once we hit
+                # events we've already processed, older ones are guaranteed seen too.
+                if all_events:
+                    batch_fps = [
+                        self._event_fingerprint(ev)
+                        for ev in all_events[-len(handles) :]
+                    ]
+                    if all(fp in self._seen_events for fp in batch_fps):
+                        break
         finally:
             close_evt_handle(query_handle)
-
-        # Save the latest timestamp for next cycle's query narrowing
-        if latest_timestamp and latest_timestamp != self._last_timestamp:
-            self._last_timestamp = latest_timestamp
-            self._save_last_timestamp(latest_timestamp)
 
         # --- Dedup: only return events we haven't sent before ---
         new_events = []
