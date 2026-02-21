@@ -14,6 +14,34 @@ except ImportError:
     win32evtlog = None
     print("Warning: win32evtlog is not available. Please run on Windows.")
 
+try:
+    import ctypes
+    from ctypes import wintypes
+
+    _EvtClose = None
+    if hasattr(ctypes, "windll"):
+        _EvtClose = ctypes.windll.wevtapi.EvtClose
+except ImportError:
+    _EvtClose = None
+
+
+def close_evt_handle(handle):
+    """Close event handle - works with or without pywin32's EvtClose"""
+    if not handle:
+        return
+    if win32evtlog and hasattr(win32evtlog, "EvtClose"):
+        try:
+            win32evtlog.EvtClose(handle)
+            return
+        except Exception:
+            pass
+    if _EvtClose:
+        try:
+            _EvtClose(handle)
+        except Exception:
+            pass
+
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -126,10 +154,7 @@ class SecurityEventAgent:
                         logger.warning("Failed to parse event XML: %s", exc)
                     last_handle = h
         finally:
-            try:
-                win32evtlog.EvtClose(query_handle)
-            except AttributeError:
-                pass
+            close_evt_handle(query_handle)
 
         if last_handle is not None:
             self._bookmark = win32evtlog.EvtCreateBookmark("")
