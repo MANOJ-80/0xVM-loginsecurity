@@ -9,6 +9,7 @@ This document covers the architecture and implementation details for collecting 
 ### 1. Windows Event Forwarding (WEF)
 
 **Architecture:**
+
 ```
 [VM1] ──┐
 [VM2] ──┼──► [Collector Server] ──► [Backend API] ──► [MSSQL]
@@ -16,17 +17,20 @@ This document covers the architecture and implementation details for collecting 
 ```
 
 **Pros:**
+
 - No agent installation required on source VMs
 - Built-in Windows feature (no additional software)
 - Scalable for many VMs
 - Secure via Kerberos/NTLM
 
 **Cons:**
+
 - Requires domain environment or complex auth setup
 - More complex initial configuration
 - Requires network connectivity between VMs and collector
 
 **Prerequisites:**
+
 - Windows Server 2012+ on collector
 - Network connectivity: Ports 5985 (HTTP) / 5986 (HTTPS)
 - Collector must be trusted for delegation (if using Kerberos)
@@ -48,7 +52,7 @@ Set-Service Wecsvc -StartupType Automatic
 **2. Create Subscription:**
 
 > **Note:** This example uses `CollectorInitiated` mode with explicit
-> source VM addresses.  For `SourceInitiated` mode (where VMs register
+> source VM addresses. For `SourceInitiated` mode (where VMs register
 > themselves via Group Policy), omit the `<EventSources>` block and
 > configure source VMs through GPO instead.
 
@@ -61,7 +65,7 @@ Set-Service Wecsvc -StartupType Automatic
     <Description>Forward failed login events (4625) to central collector</Description>
     <Enabled>true</Enabled>
     <ReadExistingEvents>true</ReadExistingEvents>
-    
+
     <EventSources>
         <EventSource>
             <Address>vm1.yourdomain.com</Address>
@@ -72,20 +76,20 @@ Set-Service Wecsvc -StartupType Automatic
             <Enabled>true</Enabled>
         </EventSource>
     </EventSources>
-    
+
     <QueryList>
         <Query Path="Security">
             <Select>*[System[EventID=4625]]</Select>
         </Query>
     </QueryList>
-    
+
     <Delivery Mode="Push">
         <PushSettings>
             <HeartbeatInterval>300</HeartbeatInterval>
             <BatchSize>50</BatchSize>
         </PushSettings>
     </Delivery>
-    
+
     <Common>
         <LogFile>ForwardedEvents</LogFile>
         <PublisherName>Microsoft-Windows-Eventlog-ForwardingPlugin</PublisherName>
@@ -94,6 +98,7 @@ Set-Service Wecsvc -StartupType Automatic
 ```
 
 **3. Apply Subscription:**
+
 ```powershell
 # Save as FailedLogins.xml, then:
 wecutil cs FailedLogins.xml
@@ -119,10 +124,11 @@ Start-Service WinRM
 **5. WEF Collector Service (reads ForwardedEvents and sends to API):**
 
 Once WEF is set up, forwarded events land in the **ForwardedEvents** log
-on the collector server.  A Python service must read this log and push
+on the collector server. A Python service must read this log and push
 normalized events to the backend API at `POST /api/v1/events`.
 
 **collector/wef_reader.py:**
+
 ```python
 import logging
 import time
@@ -152,7 +158,7 @@ class WEFCollectorService:
 
     def __init__(self, config):
         self.api_url = config['api_url']           # e.g. http://localhost:3000/api/v1/events
-        self.poll_interval = config.get('poll_interval', 2)
+        self.poll_interval = config.get('poll_interval', 10)
         self.event_id = config.get('event_id', 4625)
         self.log_channel = config.get('log_channel', 'ForwardedEvents')
 
@@ -314,18 +320,19 @@ if __name__ == '__main__':
 ```
 
 **collector/config.yaml:**
+
 ```yaml
 api_url: http://localhost:3000/api/v1/events
-poll_interval: 2
+poll_interval: 10
 event_id: 4625
 log_channel: ForwardedEvents
 ```
 
 > **How it works:** WEF delivers events into the `ForwardedEvents` log
-> on the collector server.  This service reads that log using
+> on the collector server. This service reads that log using
 > `EvtQuery`, extracts the source VM hostname from the `<Computer>`
 > element in each event XML, groups events by VM, and POSTs them to the
-> backend API.  A bookmark is persisted to disk so restarts are
+> backend API. A bookmark is persisted to disk so restarts are
 > seamless.
 
 ---
@@ -333,6 +340,7 @@ log_channel: ForwardedEvents
 ### 2. Agent-Based Collection
 
 **Architecture:**
+
 ```
 [VM1] ──► [HTTPS POST] ──► [Collector API]
 [VM2] ──► [HTTPS POST] ──►     │
@@ -341,12 +349,14 @@ log_channel: ForwardedEvents
 ```
 
 **Pros:**
+
 - Works in workgroup environments
 - Simpler configuration
 - More control over data collection
 - Can work across firewalls (HTTPS)
 
 **Cons:**
+
 - Requires agent installation on each VM
 - Agent needs to be maintained/updated
 - Requires network access to collector
@@ -354,6 +364,7 @@ log_channel: ForwardedEvents
 #### Agent Implementation
 
 **agent/main.py:**
+
 ```python
 import time
 import logging
@@ -389,7 +400,7 @@ class SecurityEventAgent:
     def __init__(self, config):
         self.vm_id = config['vm_id']
         self.collector_url = config['collector_url']
-        self.poll_interval = config.get('poll_interval', 2)
+        self.poll_interval = config.get('poll_interval', 10)
         self.event_id = config.get('event_id', 4625)
         self.hostname = socket.gethostname()
 
@@ -592,12 +603,14 @@ if __name__ == '__main__':
 ```
 
 > **Implementation notes:**
+>
 > - Uses `EvtQuery` / `EvtNext` / `EvtRender` (the modern Windows Event Log API) instead of the legacy `ReadEventLog`. This returns proper event XML that can be parsed with `ElementTree`.
 > - Persists an `EvtBookmark` to disk so that on restart the agent resumes from where it left off, without re-processing old events.
 > - Failed sends are buffered in a retry queue (max 5 000 events) and retried on the next poll cycle.
 > - Uses Python `logging` instead of bare `print()` for configurable log levels.
 
 **agent/requirements.txt:**
+
 ```
 pywin32>=306
 requests>=2.28.0
@@ -610,9 +623,11 @@ urllib3>=1.26.0
 ## API Endpoints for Multi-VM
 
 ### POST /api/v1/events
+
 Receive events from agents or WEF collector.
 
 **Request:**
+
 ```json
 {
   "vm_id": "vm-001",
@@ -629,6 +644,7 @@ Receive events from agents or WEF collector.
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -637,9 +653,11 @@ Receive events from agents or WEF collector.
 ```
 
 ### GET /api/v1/vms
+
 List all registered VMs.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -656,25 +674,27 @@ List all registered VMs.
 ```
 
 ### GET /api/v1/vms/:vm_id/attacks
+
 Get attacks specific to a VM.
 
 **Response:**
+
 ```json
 {
   "success": true,
   "vm_id": "vm-001",
   "total_attacks": 45,
   "unique_attackers": 12,
-  "top_attackers": [
-    {"ip": "192.168.1.100", "count": 20}
-  ]
+  "top_attackers": [{ "ip": "192.168.1.100", "count": 20 }]
 }
 ```
 
 ### POST /api/v1/vms
+
 Register a new VM.
 
 **Request:**
+
 ```json
 {
   "vm_id": "vm-002",
@@ -684,6 +704,7 @@ Register a new VM.
 ```
 
 ### DELETE /api/v1/vms/:vm_id
+
 Unregister a VM.
 
 ---
@@ -715,6 +736,7 @@ UPDATE PerVMThresholds SET auto_block_enabled = 1 WHERE vm_id = 'vm-002';
 ## Best Practices
 
 ### Security
+
 1. Use HTTPS for agent communication
 2. Firewall: restrict collector port to trusted VM IPs only
 3. Implement VM authentication (certificate-based) - post-MVP
@@ -722,12 +744,14 @@ UPDATE PerVMThresholds SET auto_block_enabled = 1 WHERE vm_id = 'vm-002';
 5. Monitor for suspicious activity
 
 ### Scalability
+
 1. Use message queue (RabbitMQ/Kafka) for high volume
 2. Implement event batching - only if high event volume
 3. Use load balancer for collector API
 4. Consider separate databases per region
 
 ### Monitoring
+
 1. Monitor collector queue depth
 2. Track events per VM (detect silent VMs)
 3. Alert on collection failures
@@ -740,6 +764,7 @@ UPDATE PerVMThresholds SET auto_block_enabled = 1 WHERE vm_id = 'vm-002';
 ### WEF Issues
 
 **Events not arriving:**
+
 ```powershell
 # Check subscription status
 wecutil -gs <subscription-name>
@@ -752,6 +777,7 @@ Get-WinEvent -LogName "Microsoft-Windows-Eventlog-ForwardingPlugin/Operational"
 ```
 
 **Authentication failures:**
+
 ```powershell
 # Check WinRM status on source VM
 winrm enumerate winrm/config/listener
@@ -763,11 +789,13 @@ Test-WSMan -ComputerName vm1.yourdomain.com
 ### Agent Issues
 
 **Connection refused:**
+
 - Check collector URL and port
 - Verify firewall rules
 - Check SSL certificate
 
 **High CPU:**
+
 - Increase poll interval
 - Reduce max_events per query
 - Use event bookmarks for incremental reads

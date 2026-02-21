@@ -84,7 +84,7 @@ The Collector VM must allow incoming connections on port 3000.
    ```yaml
    vm_id: "vm-001"
    collector_url: "http://192.168.56.102:3000/api/v1/events"
-   poll_interval: 2
+   poll_interval: 10
    event_id: 4625
    ```
 

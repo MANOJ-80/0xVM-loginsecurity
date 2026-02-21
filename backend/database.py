@@ -5,10 +5,8 @@ import logging
 
 load_dotenv()
 
-DB_SERVER = os.getenv("DB_SERVER", "localhost")
+DB_SERVER = os.getenv("DB_SERVER", "localhost\\SQLEXPRESS")
 DB_NAME = os.getenv("DB_NAME", "SecurityMonitor")
-DB_USER = os.getenv("DB_USER", "sa")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "YourSecurePassword")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

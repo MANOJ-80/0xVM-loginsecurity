@@ -304,10 +304,8 @@ event_id: 4625
 #### Backend .env
 
 ```env
-DB_SERVER=localhost
+DB_SERVER=localhost\SQLEXPRESS
 DB_NAME=SecurityMonitor
-DB_USER=sa
-DB_PASSWORD=YourSecurePassword
 API_PORT=3000
 THRESHOLD=5
 TIME_WINDOW=5
