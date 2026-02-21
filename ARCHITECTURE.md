@@ -57,23 +57,30 @@
 ### Agent-Based (Current Implementation)
 - Lightweight Python agent on each VM monitors Event ID 4625 using
   `EvtSubscribe` (pull-model subscription with `SignalEvent`). The OS
-  notifies the agent the instant a matching event is written to the log
-  — zero polling delay.
+  signals the agent when a matching event is written to the log.
+  A direct-pull-on-timeout safety net guarantees events are captured
+  within `poll_interval` seconds even if the signal never fires.
 - On startup, performs a one-time `EvtQuery` scan to catch events
   generated while the agent was offline.
-- Uses SHA-256 fingerprint-based dedup (`SystemTime + ip + username + source_port`)
+- Uses SHA-256 fingerprint-based dedup (`SystemTime(UTC) + ip + username + source_port`)
   to guarantee each event is sent exactly once, persisted to `<vm_id>_seen.json`.
+- Converts UTC timestamps from Windows Event XML to local time before
+  sending, so database values match Windows Event Viewer display.
 - Agent sends normalized events to `/api/v1/events` via HTTP POST.
-- Falls back to polling mode automatically if `EvtSubscribe` is unavailable.
+  Failed sends are queued and retried on the next poll cycle.
+- Server-side dedup in `sp_RecordFailedLoginMultiVM` prevents duplicate
+  inserts when retried events were already processed by the backend.
 - Best for workgroup or mixed environments.
 
 ## Data Flow
 
 1. Failed login occurs on a source VM (Event ID 4625).
-2. Agent on the VM detects the event instantly via EvtSubscribe subscription.
-3. Agent deduplicates using fingerprint set and sends new events to collector.
+2. Agent on the VM detects the event via EvtSubscribe subscription
+   (signal or direct-pull-on-timeout).
+3. Agent deduplicates using fingerprint set, converts timestamp to
+   local time, and sends new events to collector.
 4. Collector normalizes payload and adds `source_vm_id`.
-5. Detection engine evaluates global and per-VM thresholds.
+5. Stored procedure checks for duplicate before inserting (server-side dedup).
 6. Backend writes event/state records to MSSQL via stored procedure.
 7. If thresholds are exceeded, backend inserts block record(s) and calls firewall adapter.
 8. Dashboard reads `/api/v1` endpoints for global and VM-specific insights.

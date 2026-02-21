@@ -46,7 +46,7 @@ You need an isolated internal network so the VMs can talk to each other without 
 3. Connect using Windows Authentication or `sa` account.
 4. Create a database named `SecurityMonitor`.
 5. Open a new query window against `SecurityMonitor`.
-6. Paste the **entire contents** of `DATABASE_SCHEMA.md` (the generic SQL syntax block starting with `CREATE TABLE FailedLoginAttempts...` through all the `CREATE PROCEDURE` blocks) and Execute.
+6. Copy the **"Complete Setup Script"** section from `DATABASE_SCHEMA.md` (the SQL block between the first pair of triple-backtick fences) and Execute.
 
 ### 2. Start the Backend API
 
@@ -98,7 +98,8 @@ The Collector VM must allow incoming connections on port 3000.
     [INFO] Startup scan: 12 event(s) in log, 0 are new (unseen)
     [INFO] Real-time subscription active (EvtSubscribe)
    ```
-   The agent is now listening for events in real-time — no polling delay.
+   The agent is now listening for events in real-time. Events are
+   guaranteed to be captured within `poll_interval` seconds (10s default).
 
 ---
 
@@ -162,7 +163,39 @@ Open a browser locally on the Collector VM (or via Postman from anywhere):
 
 If you reach this point, the core monitoring logic is 100% verified.
 
-## Part 6: Automating the Windows Firewall Blocks (Future/Optional)
+## Part 6: Stress Testing & Duplicate Verification
+
+After verifying basic functionality, run a burst of failed logins to test
+the retry queue and server-side dedup.
+
+### 1. Generate Burst Traffic
+
+From the Collector VM, run multiple failed SMB logins in quick succession:
+
+```cmd
+for /L %i in (1,1,10) do net use \\192.168.56.101\C$ /user:stresstest%i wrongpassword
+```
+
+### 2. Watch the Agent
+
+You will likely see some `Read timed out` errors as the backend struggles
+under burst load. The agent will queue these events and retry them on the
+next cycle. All events should eventually show `Sent N event(s) to collector`.
+
+### 3. Verify No Duplicates in the Database
+
+Open SSMS on the Collector VM and run:
+
+```sql
+SELECT ip_address, username, source_port, timestamp, source_vm_id, COUNT(*) AS copies
+FROM FailedLoginAttempts
+GROUP BY ip_address, username, source_port, timestamp, source_vm_id
+HAVING COUNT(*) > 1;
+```
+
+This should return **zero rows** if the server-side dedup is working correctly.
+
+## Part 7: Automating the Windows Firewall Blocks (Future/Optional)
 
 Once the above is working, the next logical step is to have a script that constantly polls the API using the `/suspicious-ips` endpoint and creates a Windows Firewall rule to block them via PowerShell `New-NetFirewallRule`.
 

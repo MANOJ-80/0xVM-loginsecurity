@@ -105,7 +105,9 @@ INSERT INTO Settings (key_name, value, description) VALUES
 ('THRESHOLD', '5', 'Failed attempts before marking as suspicious'),
 ('TIME_WINDOW', '5', 'Time window in minutes for threshold'),
 ('BLOCK_DURATION', '60', 'Auto-block duration in minutes'),
-('ENABLE_AUTO_BLOCK', 'true', 'Enable automatic IP blocking');
+('ENABLE_AUTO_BLOCK', 'true', 'Enable automatic IP blocking'),
+('GLOBAL_THRESHOLD', '5', 'Global threshold across all VMs'),
+('ENABLE_GLOBAL_AUTO_BLOCK', 'true', 'Enable global auto-blocking');
 GO
 
 
@@ -122,6 +124,22 @@ CREATE TABLE VMSources (
 
 CREATE INDEX idx_vm_id ON VMSources(vm_id);
 CREATE INDEX idx_status ON VMSources(status);
+GO
+
+
+CREATE TABLE PerVMThresholds (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    vm_id VARCHAR(100) NOT NULL,
+    threshold INT DEFAULT 5,
+    time_window_minutes INT DEFAULT 5,
+    block_duration_minutes INT DEFAULT 60,
+    auto_block_enabled BIT DEFAULT 1,
+    created_at DATETIME2 DEFAULT GETUTCDATE(),
+    updated_at DATETIME2 DEFAULT GETUTCDATE(),
+
+    FOREIGN KEY (vm_id) REFERENCES VMSources(vm_id),
+    UNIQUE (vm_id)
+);
 GO
 
 
