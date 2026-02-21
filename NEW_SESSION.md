@@ -1247,3 +1247,101 @@ guaranteed to be captured within `poll_interval` seconds even if the
 signal never fires.
 
 ---
+
+## Session 7 — Stress Testing & Database Duplicate Prevention
+
+**Date:** 2026-02-21
+**Commits:** (pending)
+
+### Summary
+
+Ran a comprehensive stress test (stresstest1-9) against the pipeline.
+All events were captured and delivered, but the stress test exposed a
+**database duplicate insertion bug** caused by agent-side retry logic
+interacting with backend timeouts.
+
+### Stress Test Results
+
+The agent successfully captured all attack events from multiple rounds
+of SMB-based brute-force attacks.  The retry queue activated when the
+backend's 30-second read timeout was hit under burst load, and all
+queued events were eventually flushed.
+
+**Bug discovered:** When the agent's HTTP POST times out (30s), the
+events are placed in the retry queue.  However, the backend may have
+already processed the original request — the timeout was only on the
+agent's side (TCP read timeout).  When the agent retries, the same
+events are inserted a second time, creating duplicate rows.
+
+### Root Cause
+
+The agent's fingerprint-based dedup prevents the agent from *sending*
+the same event twice in the normal flow.  But the retry queue bypasses
+this — it holds events that were already sent (and possibly processed)
+but whose HTTP response was never received.  The database had no
+server-side dedup, so it blindly inserted every row.
+
+### Fix: Server-Side Dedup in Stored Procedure
+
+Added an `IF EXISTS` guard to `sp_RecordFailedLoginMultiVM`.  Before
+inserting, it checks for an existing row with the same natural key:
+
+- `ip_address`
+- `username`
+- `source_port`
+- `timestamp`
+- `source_vm_id`
+
+This combination uniquely identifies a single Windows 4625 event.  If
+a matching row already exists, the procedure returns immediately
+without inserting or updating counters.
+
+```sql
+IF EXISTS (
+    SELECT 1 FROM FailedLoginAttempts
+    WHERE ip_address   = @ip_address
+      AND username     = @username
+      AND source_port  = @source_port
+      AND timestamp    = @ts
+      AND source_vm_id = @source_vm_id
+)
+BEGIN
+    RETURN;
+END
+```
+
+Also refactored all `ISNULL(@event_timestamp, GETUTCDATE())` calls to
+use a single `DECLARE @ts` variable at the top, ensuring timestamp
+consistency within the procedure.
+
+### Changes Made
+
+- **DATABASE_SCHEMA.md:** Updated `sp_RecordFailedLoginMultiVM` in
+  both occurrences (Complete Setup Script and Documentation section)
+  to include the `IF NOT EXISTS` dedup check and `@ts` variable.
+
+### Remaining Steps (User Action Required)
+
+1. **Run the updated stored procedure in SSMS** on the Collector VM
+   (`192.168.56.102`) — the SQL was provided and is in
+   `DATABASE_SCHEMA.md`.
+2. **Clean up existing duplicate rows** in `FailedLoginAttempts` — use
+   a CTE with `ROW_NUMBER()` partitioned by the natural key to delete
+   extra copies.
+3. **Re-run the stress test** to verify zero duplicates with the new
+   stored procedure.
+
+### Design Notes
+
+- **Server-side dedup is the correct layer** for this problem. The
+  agent can't know whether the backend processed a timed-out request,
+  so the database must be the final arbiter.
+- **No unique constraint was added** to the table because the `IF
+  EXISTS` check is sufficient and avoids the need to handle constraint
+  violation errors in the backend.  A unique index could be added
+  later as a belt-and-suspenders measure.
+- **SuspiciousIPs counter accuracy:** With the dedup guard, the
+  `failed_attempts` counter only increments for genuinely new events.
+  Retried duplicates no longer inflate the count.
+
+---

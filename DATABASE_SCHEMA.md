@@ -140,24 +140,45 @@ CREATE PROCEDURE sp_RecordFailedLoginMultiVM
     @event_timestamp DATETIME2 = NULL
 AS
 BEGIN
+    DECLARE @ts DATETIME2 = ISNULL(@event_timestamp, GETUTCDATE());
+
+    -- Skip if this exact event was already recorded.
+    -- The combination of ip + username + port + timestamp + vm uniquely
+    -- identifies a single Windows 4625 event.
+    IF EXISTS (
+        SELECT 1 FROM FailedLoginAttempts
+        WHERE ip_address   = @ip_address
+          AND username     = @username
+          AND source_port  = @source_port
+          AND timestamp    = @ts
+          AND source_vm_id = @source_vm_id
+    )
+    BEGIN
+        RETURN;
+    END
+
     INSERT INTO FailedLoginAttempts
     (ip_address, username, hostname, logon_type, failure_reason, source_port, source_vm_id, timestamp)
     VALUES
-    (@ip_address, @username, @hostname, @logon_type, @failure_reason, @source_port, @source_vm_id,
-     ISNULL(@event_timestamp, GETUTCDATE()));
+    (@ip_address, @username, @hostname, @logon_type, @failure_reason, @source_port, @source_vm_id, @ts);
 
     IF EXISTS (SELECT 1 FROM SuspiciousIPs WHERE ip_address = @ip_address)
     BEGIN
         UPDATE SuspiciousIPs
         SET failed_attempts = failed_attempts + 1,
-            last_attempt = ISNULL(@event_timestamp, GETUTCDATE()),
+            last_attempt = @ts,
             updated_at = GETUTCDATE()
         WHERE ip_address = @ip_address;
     END
     ELSE
     BEGIN
         INSERT INTO SuspiciousIPs (ip_address, failed_attempts, first_attempt, last_attempt)
-        VALUES (@ip_address, 1, ISNULL(@event_timestamp, GETUTCDATE()), ISNULL(@event_timestamp, GETUTCDATE()));
+        VALUES (@ip_address, 1, @ts, @ts);
+    END
+
+    IF @source_vm_id IS NOT NULL
+    BEGIN
+        UPDATE VMSources SET last_seen = GETUTCDATE() WHERE vm_id = @source_vm_id;
     END
 END
 GO
@@ -512,26 +533,43 @@ CREATE PROCEDURE sp_RecordFailedLoginMultiVM
     @event_timestamp DATETIME2 = NULL
 AS
 BEGIN
-    INSERT INTO FailedLoginAttempts (ip_address, username, hostname, logon_type, failure_reason, source_port, source_vm_id, timestamp)
-    VALUES (@ip_address, @username, @hostname, @logon_type, @failure_reason, @source_port, @source_vm_id,
-            ISNULL(@event_timestamp, GETUTCDATE()));
+    DECLARE @ts DATETIME2 = ISNULL(@event_timestamp, GETUTCDATE());
+
+    -- Skip if this exact event was already recorded.
+    -- The combination of ip + username + port + timestamp + vm uniquely
+    -- identifies a single Windows 4625 event.
+    IF EXISTS (
+        SELECT 1 FROM FailedLoginAttempts
+        WHERE ip_address   = @ip_address
+          AND username     = @username
+          AND source_port  = @source_port
+          AND timestamp    = @ts
+          AND source_vm_id = @source_vm_id
+    )
+    BEGIN
+        RETURN;
+    END
+
+    INSERT INTO FailedLoginAttempts
+    (ip_address, username, hostname, logon_type, failure_reason, source_port, source_vm_id, timestamp)
+    VALUES
+    (@ip_address, @username, @hostname, @logon_type, @failure_reason, @source_port, @source_vm_id, @ts);
 
     -- Update or insert suspicious IP (global tracking)
     IF EXISTS (SELECT 1 FROM SuspiciousIPs WHERE ip_address = @ip_address)
     BEGIN
         UPDATE SuspiciousIPs
         SET failed_attempts = failed_attempts + 1,
-            last_attempt = ISNULL(@event_timestamp, GETUTCDATE()),
+            last_attempt = @ts,
             updated_at = GETUTCDATE()
         WHERE ip_address = @ip_address;
     END
     ELSE
     BEGIN
         INSERT INTO SuspiciousIPs (ip_address, failed_attempts, first_attempt, last_attempt)
-        VALUES (@ip_address, 1, ISNULL(@event_timestamp, GETUTCDATE()), ISNULL(@event_timestamp, GETUTCDATE()));
+        VALUES (@ip_address, 1, @ts, @ts);
     END
 
-    -- Update VM last_seen
     IF @source_vm_id IS NOT NULL
     BEGIN
         UPDATE VMSources SET last_seen = GETUTCDATE() WHERE vm_id = @source_vm_id;
