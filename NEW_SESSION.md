@@ -863,3 +863,43 @@ This is real security engineering work.
 6. Testing with real attack simulation is best validation
 
 ---
+
+# Session 2 Fixes (Bookmark + Localhost Filter)
+
+## Bug: Agent re-sends same 8 events every 10 seconds
+
+### Root Cause
+
+Two problems working together:
+
+1. **Bookmark update used invalid handles.** The event handles returned by
+   `EvtNext()` become invalid once the `query_handle` is closed via
+   `EvtClose()`. The old code closed the query handle in a `finally` block
+   and *then* tried to call `EvtUpdateBookmark()` with the last event handle
+   — which was already dead. The update silently failed, so the bookmark XML
+   was never refreshed, and the next poll cycle re-read all historical events.
+
+2. **Localhost IPs not filtered.** The filter only excluded `ip_address == "-"`
+   but let through `::1` (IPv6 localhost) and `127.0.0.1`, which are generated
+   by local service logins and added noise.
+
+### Fix Applied (agent/main.py)
+
+- Moved `EvtUpdateBookmark()` **inside** the read loop so it runs while event
+  handles are still alive.
+- Moved `EvtRender(bookmark, EvtRenderBookmark)` and `_save_bookmark()` into
+  the `finally` block but **before** `close_evt_handle(query_handle)`.
+- Removed persistent `self._bookmark_handle` — each poll cycle now creates a
+  fresh bookmark handle, updates it, renders it, and discards it. The saved
+  bookmark XML (`_bookmark_xml`) is what persists across cycles.
+- Added `_IGNORED_IPS = frozenset({"-", "::1", "127.0.0.1", "0.0.0.0"})` to
+  filter out all localhost/loopback traffic.
+
+### Expected Behavior After Fix
+
+- First poll: reads all historical 4625 events, sends them, saves bookmark.
+- Subsequent polls: seeks past saved bookmark, reads only new events.
+- If no new events exist, `EvtNext()` returns empty and nothing is sent.
+- Localhost-origin events are silently dropped.
+
+---

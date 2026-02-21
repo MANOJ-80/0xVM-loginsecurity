@@ -63,6 +63,7 @@ def health_check():
         "active_vms": 0,
         "db_connected": False,
     }
+    conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -71,15 +72,18 @@ def health_check():
         if row:
             health["active_vms"] = row[0]
         health["db_connected"] = True
-        conn.close()
     except Exception as e:
         health["status"] = "unhealthy"
         health["db_connected"] = False
+    finally:
+        if conn:
+            conn.close()
     return health
 
 
 @app.post("/api/v1/events")
 async def receive_events(req: ReceiveEventsRequest):
+    conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -110,30 +114,34 @@ async def receive_events(req: ReceiveEventsRequest):
                 }
             )
         conn.commit()
-        conn.close()
         return {"success": True, "events_received": len(req.events)}
     except Exception as e:
-        if "conn" in locals() and hasattr(conn, "close"):
-            conn.close()
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
 
 
 @app.get("/api/v1/suspicious-ips")
 def get_suspicious_ips(threshold: int = 5):
+    conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("{CALL sp_GetSuspiciousIPs(?)}", (threshold,))
         columns = [column[0] for column in cursor.description]
         results = [dict(zip(columns, row)) for row in cursor.fetchall()]
-        conn.close()
         return {"success": True, "data": results, "count": len(results)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
 
 
 @app.get("/api/v1/blocked-ips")
 def get_blocked_ips():
+    conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -142,14 +150,17 @@ def get_blocked_ips():
         )
         columns = [column[0] for column in cursor.description]
         results = [dict(zip(columns, row)) for row in cursor.fetchall()]
-        conn.close()
         return {"success": True, "data": results, "count": len(results)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
 
 
 @app.post("/api/v1/block")
 def block_ip(req: ManualBlockRequest):
+    conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -158,17 +169,20 @@ def block_ip(req: ManualBlockRequest):
             (req.ip_address, req.reason, req.duration_minutes, "manual"),
         )
         conn.commit()
-        conn.close()
         return {
             "success": True,
             "message": f"IP {req.ip_address} blocked for {req.duration_minutes} minutes",
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
 
 
 @app.post("/api/v1/block/per-vm")
 def block_ip_per_vm(req: PerVMBlockRequest):
+    conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -177,17 +191,20 @@ def block_ip_per_vm(req: PerVMBlockRequest):
             (req.ip_address, req.vm_id, req.reason, req.duration_minutes, "manual"),
         )
         conn.commit()
-        conn.close()
         return {
             "success": True,
             "message": f"IP {req.ip_address} blocked on VM {req.vm_id} for {req.duration_minutes} minutes",
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
 
 
 @app.delete("/api/v1/block/{ip}")
 def unblock_ip(ip: str):
+    conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -199,14 +216,17 @@ def unblock_ip(ip: str):
             "UPDATE SuspiciousIPs SET status='cleared' WHERE ip_address=?", (ip,)
         )
         conn.commit()
-        conn.close()
         return {"success": True, "message": f"IP {ip} unblocked"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
 
 
 @app.post("/api/v1/vms")
 def register_vm(req: RegisterVMRequest):
+    conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -215,14 +235,17 @@ def register_vm(req: RegisterVMRequest):
             (req.vm_id, req.hostname, req.ip_address, req.collection_method),
         )
         conn.commit()
-        conn.close()
         return {"success": True, "message": f"VM {req.vm_id} registered successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
 
 
 @app.get("/api/v1/vms")
 def list_vms():
+    conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -231,34 +254,39 @@ def list_vms():
         )
         columns = [column[0] for column in cursor.description]
         results = [dict(zip(columns, row)) for row in cursor.fetchall()]
-        conn.close()
         return {"success": True, "data": results, "count": len(results)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
 
 
 @app.delete("/api/v1/vms/{vm_id}")
 def delete_vm(vm_id: str):
+    conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("UPDATE VMSources SET status='inactive' WHERE vm_id=?", (vm_id,))
         conn.commit()
-        conn.close()
         return {"success": True, "message": f"VM {vm_id} unregistered"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
 
 
 @app.get("/api/v1/vms/{vm_id}/attacks")
 def get_vm_attacks(vm_id: str):
+    conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("{CALL sp_GetVMStats(?)}", (vm_id,))
         columns = [column[0] for column in cursor.description]
         row = cursor.fetchone()
-        conn.close()
 
         if row:
             data = dict(zip(columns, row))
@@ -273,6 +301,9 @@ def get_vm_attacks(vm_id: str):
             }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
 
 
 @app.get("/api/v1/feed")

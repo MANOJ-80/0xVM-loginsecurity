@@ -1,11 +1,9 @@
 import time
 import logging
 import socket
-import json
 import os
 import collections
 import requests
-from datetime import datetime
 import xml.etree.ElementTree as ET
 
 try:
@@ -16,7 +14,6 @@ except ImportError:
 
 try:
     import ctypes
-    from ctypes import wintypes
 
     _EvtClose = None
     if hasattr(ctypes, "windll"):
@@ -68,7 +65,6 @@ class SecurityEventAgent:
 
         self._retry_queue = collections.deque(maxlen=5000)
         self._bookmark_path = f"{self.vm_id}_bookmark.xml"
-        self._bookmark_handle = None
         self._bookmark_xml = self._load_bookmark()
 
     def _load_bookmark(self):
@@ -112,6 +108,9 @@ class SecurityEventAgent:
             "source_port": data.get("IpPort"),
         }
 
+    # IPs that should be ignored (localhost / loopback noise)
+    _IGNORED_IPS = frozenset({"-", "::1", "127.0.0.1", "0.0.0.0"})
+
     def query_new_events(self):
         if not win32evtlog:
             logger.warning("Skipping event collection - not on Windows")
@@ -121,29 +120,30 @@ class SecurityEventAgent:
         flags = win32evtlog.EvtQueryChannelPath | win32evtlog.EvtQueryForwardDirection
         query_handle = win32evtlog.EvtQuery("Security", flags, query)
 
-        # Create fresh bookmark if needed
-        if self._bookmark_handle is None:
+        # If we have saved bookmark XML from a previous cycle, seek past it
+        if self._bookmark_xml:
             try:
-                self._bookmark_handle = win32evtlog.EvtCreateBookmark(None)
-            except Exception as e:
-                logger.warning("Could not create bookmark: %s", e)
-
-        # Try to seek to bookmark position
-        if self._bookmark_handle is not None and self._bookmark_xml:
-            try:
-                bookmark_handle = win32evtlog.EvtCreateBookmark(self._bookmark_xml)
+                seek_handle = win32evtlog.EvtCreateBookmark(self._bookmark_xml)
                 win32evtlog.EvtSeek(
                     query_handle,
-                    1,
-                    bookmark_handle,
+                    1,  # skip 1 past the bookmarked event
+                    seek_handle,
                     win32evtlog.EvtSeekRelativeToBookmark,
                 )
-                close_evt_handle(bookmark_handle)
-            except Exception:
-                logger.debug("Bookmark seek failed; reading from start")
+                close_evt_handle(seek_handle)
+                logger.debug("Bookmark seek succeeded — reading only new events")
+            except Exception as e:
+                logger.warning("Bookmark seek failed, reading from start: %s", e)
+
+        # Create a fresh bookmark handle for tracking position this cycle
+        bookmark_handle = None
+        try:
+            bookmark_handle = win32evtlog.EvtCreateBookmark(None)
+        except Exception as e:
+            logger.warning("Could not create bookmark handle: %s", e)
 
         new_events = []
-        last_handle = None
+        last_event_handle = None
 
         try:
             while True:
@@ -158,24 +158,36 @@ class SecurityEventAgent:
                     xml_string = win32evtlog.EvtRender(h, win32evtlog.EvtRenderEventXml)
                     try:
                         parsed = self.parse_event_xml(xml_string)
-                        if parsed.get("ip_address") and parsed["ip_address"] != "-":
+                        ip = parsed.get("ip_address") or "-"
+                        if ip not in self._IGNORED_IPS:
                             new_events.append(parsed)
                     except Exception as exc:
                         logger.warning("Failed to parse event XML: %s", exc)
-                    last_handle = h
-        finally:
-            close_evt_handle(query_handle)
+                    last_event_handle = h
 
-        # Update bookmark after processing
-        if last_handle is not None and self._bookmark_handle is not None:
-            try:
-                win32evtlog.EvtUpdateBookmark(self._bookmark_handle, last_handle)
-                self._bookmark_xml = win32evtlog.EvtRender(
-                    self._bookmark_handle, win32evtlog.EvtRenderBookmark
-                )
-                self._save_bookmark(self._bookmark_xml)
-            except Exception as e:
-                logger.warning("Bookmark update failed: %s", e)
+                # Update bookmark while event handles are still valid
+                # (they become invalid once the query_handle is closed)
+                if last_event_handle is not None and bookmark_handle is not None:
+                    try:
+                        win32evtlog.EvtUpdateBookmark(
+                            bookmark_handle, last_event_handle
+                        )
+                    except Exception as e:
+                        logger.debug("Bookmark update in loop failed: %s", e)
+        finally:
+            # Render bookmark XML BEFORE closing the query handle
+            if last_event_handle is not None and bookmark_handle is not None:
+                try:
+                    self._bookmark_xml = win32evtlog.EvtRender(
+                        bookmark_handle, win32evtlog.EvtRenderBookmark
+                    )
+                    self._save_bookmark(self._bookmark_xml)
+                    logger.debug("Bookmark saved successfully")
+                except Exception as e:
+                    logger.warning("Bookmark render/save failed: %s", e)
+
+            close_evt_handle(bookmark_handle)
+            close_evt_handle(query_handle)
 
         return new_events
 
