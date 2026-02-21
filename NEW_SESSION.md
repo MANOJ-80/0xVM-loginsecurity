@@ -1160,3 +1160,68 @@ Event detection is now **instant** — zero polling delay. The agent
 wakes up the moment Windows writes a 4625 event to the Security log.
 
 ---
+
+## Session 6 — UTC to Local Timestamp Conversion
+
+### Problem
+
+Windows Event Log stores `SystemTime` in UTC. The agent was sending
+this raw UTC string to the backend, so the database timestamps did
+**not** match what Windows Event Viewer displays (which shows local
+time). The Source VM is in IST (UTC+5:30), so every timestamp was
+5 hours 30 minutes behind what the user saw in Event Viewer.
+
+### Changes Made (agent/main.py)
+
+1. **Added `_utc_to_local()` static method** — Parses the UTC
+   `SystemTime` string, converts to the system's local timezone using
+   `datetime.astimezone()`, and reconstructs the output string
+   preserving the original fractional-second precision (up to 7 digits
+   from Windows).
+
+2. **`parse_event_xml()` now returns two timestamp fields:**
+   - `timestamp` — local time string (sent to backend/stored in DB)
+   - `_raw_utc` — original UTC string (used only for fingerprinting)
+
+3. **Updated `_event_fingerprint()` to use `_raw_utc`** — Critical for
+   backward compatibility. Existing `_seen.json` files contain
+   fingerprints computed from the original UTC strings. If we switched
+   the fingerprint to use local time, every previously-seen event would
+   get a new fingerprint and be re-sent on the next restart.
+
+4. **`send_events()` strips `_raw_utc` before sending** — The backend's
+   Pydantic `EventModel` doesn't have a `_raw_utc` field, and Pydantic
+   v2 rejects extra fields by default (HTTP 422). The agent now builds
+   a clean event list excluding `_raw_utc` at the network boundary.
+
+5. **Fixed fractional-second precision** — The original code trimmed
+   fractional seconds to 6 digits for Python's `strptime`, but then
+   used the trimmed value in the output. Now preserves the original
+   precision (e.g., `7999016` stays `7999016`, not `799901`).
+
+### Design Decisions
+
+- **Strip at send boundary, not at parse time:** The `_raw_utc` field
+  lives in the event dict throughout the agent's internal pipeline
+  (dedup, retry queue, etc.) and is only removed when building the HTTP
+  payload. This means retry queue entries retain their fingerprinting
+  data.
+
+- **`astimezone()` with no argument:** Uses the system's local timezone
+  automatically. No hardcoded timezone offset — if the VM's timezone
+  changes, the conversion adapts.
+
+- **Fallback on parse failure:** If `_utc_to_local()` can't parse the
+  UTC string (unlikely but defensive), it returns the original string
+  unchanged rather than crashing.
+
+### Testing Required
+
+- Run an attack from Kali, compare the `timestamp` value in the DB
+  with what Event Viewer shows for the same event
+- Restart the agent and verify no duplicate events are re-sent
+  (fingerprint compatibility with existing `_seen.json`)
+- Verify the backend accepts events without errors (no 422 from
+  extra fields)
+
+---

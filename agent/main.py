@@ -5,6 +5,7 @@ import socket
 import os
 import collections
 import json
+from datetime import datetime, timezone
 import requests
 import xml.etree.ElementTree as ET
 
@@ -121,17 +122,50 @@ class SecurityEventAgent:
     def _event_fingerprint(parsed):
         """
         Create a unique fingerprint for a Windows event.
-        Uses the event's actual SystemTime + ip + username + source_port.
+        Uses the event's raw UTC SystemTime + ip + username + source_port.
         Two real attacks at different times will have different SystemTime
         values, so they will always be treated as distinct events.
+
+        IMPORTANT: Always use _raw_utc (the original UTC string from the
+        event XML) — never the converted local timestamp.  This keeps
+        fingerprints stable across timezone changes and preserves
+        compatibility with existing _seen.json files.
         """
         parts = (
-            parsed.get("timestamp") or "",
+            parsed.get("_raw_utc") or "",
             parsed.get("ip_address") or "",
             parsed.get("username") or "",
             parsed.get("source_port") or "",
         )
         return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
+
+    @staticmethod
+    def _utc_to_local(utc_string):
+        """
+        Convert a Windows SystemTime UTC string to local time string.
+        Input:  '2026-02-21T16:42:04.7999016Z'
+        Output: '2026-02-21T22:12:04.7999016' (for IST, UTC+5:30)
+        """
+        if not utc_string:
+            return None
+        try:
+            # Windows SystemTime has 7-digit fractional seconds; Python
+            # only handles 6.  Trim to 6 for parsing, but preserve the
+            # original precision in the output string.
+            clean = utc_string.rstrip("Z")
+            orig_frac = "0"
+            if "." in clean:
+                date_part, orig_frac = clean.split(".", 1)
+                parse_frac = orig_frac[:6]
+                clean = f"{date_part}.{parse_frac}"
+            else:
+                clean = clean + ".0"
+            dt_utc = datetime.strptime(clean, "%Y-%m-%dT%H:%M:%S.%f")
+            dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+            dt_local = dt_utc.astimezone()  # converts to system local tz
+            return dt_local.strftime("%Y-%m-%dT%H:%M:%S.") + orig_frac
+        except Exception:
+            return utc_string  # fallback: return original if parsing fails
 
     @staticmethod
     def parse_event_xml(xml_string):
@@ -142,10 +176,10 @@ class SecurityEventAgent:
             if name:
                 data[name] = item.text
         time_created = root.find(".//e:TimeCreated", EVT_NS)
+        raw_utc = time_created.get("SystemTime") if time_created is not None else None
         return {
-            "timestamp": time_created.get("SystemTime")
-            if time_created is not None
-            else None,
+            "timestamp": SecurityEventAgent._utc_to_local(raw_utc),
+            "_raw_utc": raw_utc,  # kept for fingerprinting (dedup)
             "ip_address": data.get("IpAddress"),
             "username": data.get("TargetUserName"),
             "domain": data.get("TargetDomainName"),
@@ -327,10 +361,16 @@ class SecurityEventAgent:
         return new_events
 
     def send_events(self, events, is_retry=False):
+        # Strip internal-only fields before sending to the collector.
+        # _raw_utc is used for fingerprinting but the backend doesn't
+        # know about it (and Pydantic would reject the extra field).
+        clean_events = [
+            {k: v for k, v in ev.items() if k != "_raw_utc"} for ev in events
+        ]
         payload = {
             "vm_id": self.vm_id,
             "hostname": self.hostname,
-            "events": events,
+            "events": clean_events,
         }
         try:
             response = requests.post(
