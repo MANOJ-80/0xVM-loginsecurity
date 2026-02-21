@@ -196,7 +196,11 @@ class SecurityEventAgent:
 
         while True:
             try:
-                handles = win32evtlog.EvtNext(self._subscription_handle, 50, -1, 0)
+                # Timeout=0: return immediately with whatever is available.
+                # Do NOT use -1 (INFINITE) here — on a subscription handle,
+                # EvtNext with INFINITE timeout will block forever waiting
+                # for more events once the buffered ones are consumed.
+                handles = win32evtlog.EvtNext(self._subscription_handle, 50, 0, 0)
             except Exception:
                 break
             if not handles:
@@ -389,6 +393,7 @@ class SecurityEventAgent:
 
                     if result == win32con.WAIT_OBJECT_0:
                         # Signal fired — new events available
+                        logger.debug("Signal received — pulling events")
                         events = self._pull_events_from_subscription()
                         if events:
                             for ev in events:
