@@ -88,9 +88,8 @@ async def receive_events(req: ReceiveEventsRequest):
         conn = get_db_connection()
         cursor = conn.cursor()
         for ev in req.events:
-            # Note: sp_RecordFailedLoginMultiVM relies on specific parameter order/names
             cursor.execute(
-                "{CALL sp_RecordFailedLoginMultiVM(?, ?, ?, ?, ?, ?, ?)}",
+                "{CALL sp_RecordFailedLoginMultiVM(?, ?, ?, ?, ?, ?, ?, ?)}",
                 (
                     ev.ip_address,
                     ev.username,
@@ -103,6 +102,7 @@ async def receive_events(req: ReceiveEventsRequest):
                     if ev.source_port and ev.source_port.strip()
                     else None,
                     req.vm_id,
+                    ev.timestamp if ev.timestamp else None,
                 ),
             )
             await new_events_queue.put(

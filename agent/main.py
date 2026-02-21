@@ -1,8 +1,10 @@
 import time
 import logging
+import hashlib
 import socket
 import os
 import collections
+import json
 import requests
 import xml.etree.ElementTree as ET
 
@@ -67,6 +69,10 @@ class SecurityEventAgent:
         self._bookmark_path = f"{self.vm_id}_bookmark.xml"
         self._bookmark_xml = self._load_bookmark()
 
+        # Dedup: track fingerprints of events we already sent
+        self._seen_path = f"{self.vm_id}_seen.json"
+        self._seen_events = self._load_seen()
+
     def _load_bookmark(self):
         if not win32evtlog:
             return None
@@ -85,6 +91,42 @@ class SecurityEventAgent:
             return
         with open(self._bookmark_path, "w") as f:
             f.write(bookmark_xml)
+
+    def _load_seen(self):
+        """Load set of already-sent event fingerprints from disk."""
+        if os.path.exists(self._seen_path):
+            try:
+                with open(self._seen_path, "r") as f:
+                    data = json.load(f)
+                if isinstance(data, list):
+                    return set(data)
+            except Exception:
+                logger.warning("Could not load seen events file; starting fresh")
+        return set()
+
+    def _save_seen(self):
+        """Persist seen fingerprints to disk so restarts don't re-send."""
+        try:
+            with open(self._seen_path, "w") as f:
+                json.dump(list(self._seen_events), f)
+        except Exception as e:
+            logger.warning("Could not save seen events: %s", e)
+
+    @staticmethod
+    def _event_fingerprint(parsed):
+        """
+        Create a unique fingerprint for a Windows event.
+        Uses the event's actual SystemTime + ip + username + source_port.
+        Two real attacks at different times will have different SystemTime
+        values, so they will always be treated as distinct events.
+        """
+        parts = (
+            parsed.get("timestamp") or "",
+            parsed.get("ip_address") or "",
+            parsed.get("username") or "",
+            parsed.get("source_port") or "",
+        )
+        return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
 
     @staticmethod
     def parse_event_xml(xml_string):
@@ -131,9 +173,9 @@ class SecurityEventAgent:
                     win32evtlog.EvtSeekRelativeToBookmark,
                 )
                 close_evt_handle(seek_handle)
-                logger.debug("Bookmark seek succeeded — reading only new events")
+                logger.info("Bookmark seek succeeded — reading only new events")
             except Exception as e:
-                logger.warning("Bookmark seek failed, reading from start: %s", e)
+                logger.info("Bookmark seek failed, reading from start: %s", e)
 
         # Create a fresh bookmark handle for tracking position this cycle
         bookmark_handle = None
@@ -142,7 +184,7 @@ class SecurityEventAgent:
         except Exception as e:
             logger.warning("Could not create bookmark handle: %s", e)
 
-        new_events = []
+        all_events = []
         last_event_handle = None
 
         try:
@@ -160,7 +202,7 @@ class SecurityEventAgent:
                         parsed = self.parse_event_xml(xml_string)
                         ip = parsed.get("ip_address") or "-"
                         if ip not in self._IGNORED_IPS:
-                            new_events.append(parsed)
+                            all_events.append(parsed)
                     except Exception as exc:
                         logger.warning("Failed to parse event XML: %s", exc)
                     last_event_handle = h
@@ -173,7 +215,7 @@ class SecurityEventAgent:
                             bookmark_handle, last_event_handle
                         )
                     except Exception as e:
-                        logger.debug("Bookmark update in loop failed: %s", e)
+                        logger.info("Bookmark update in loop failed: %s", e)
         finally:
             # Render bookmark XML BEFORE closing the query handle
             if last_event_handle is not None and bookmark_handle is not None:
@@ -182,12 +224,31 @@ class SecurityEventAgent:
                         bookmark_handle, win32evtlog.EvtRenderBookmark
                     )
                     self._save_bookmark(self._bookmark_xml)
-                    logger.debug("Bookmark saved successfully")
+                    logger.info("Bookmark saved successfully")
                 except Exception as e:
                     logger.warning("Bookmark render/save failed: %s", e)
 
             close_evt_handle(bookmark_handle)
             close_evt_handle(query_handle)
+
+        # --- Dedup: only return events we haven't sent before ---
+        new_events = []
+        for ev in all_events:
+            fp = self._event_fingerprint(ev)
+            if fp not in self._seen_events:
+                new_events.append(ev)
+                self._seen_events.add(fp)
+
+        if all_events:
+            logger.info(
+                "Read %d event(s) from log, %d are new (unseen)",
+                len(all_events),
+                len(new_events),
+            )
+
+        # Persist seen set after filtering
+        if new_events:
+            self._save_seen()
 
         return new_events
 

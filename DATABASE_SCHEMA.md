@@ -136,26 +136,28 @@ CREATE PROCEDURE sp_RecordFailedLoginMultiVM
     @logon_type INT = NULL,
     @failure_reason VARCHAR(20) = NULL,
     @source_port INT = NULL,
-    @source_vm_id VARCHAR(100) = NULL
+    @source_vm_id VARCHAR(100) = NULL,
+    @event_timestamp DATETIME2 = NULL
 AS
 BEGIN
     INSERT INTO FailedLoginAttempts
-    (ip_address, username, hostname, logon_type, failure_reason, source_port, source_vm_id)
+    (ip_address, username, hostname, logon_type, failure_reason, source_port, source_vm_id, timestamp)
     VALUES
-    (@ip_address, @username, @hostname, @logon_type, @failure_reason, @source_port, @source_vm_id);
+    (@ip_address, @username, @hostname, @logon_type, @failure_reason, @source_port, @source_vm_id,
+     ISNULL(@event_timestamp, GETUTCDATE()));
 
     IF EXISTS (SELECT 1 FROM SuspiciousIPs WHERE ip_address = @ip_address)
     BEGIN
         UPDATE SuspiciousIPs
         SET failed_attempts = failed_attempts + 1,
-            last_attempt = GETUTCDATE(),
+            last_attempt = ISNULL(@event_timestamp, GETUTCDATE()),
             updated_at = GETUTCDATE()
         WHERE ip_address = @ip_address;
     END
     ELSE
     BEGIN
         INSERT INTO SuspiciousIPs (ip_address, failed_attempts, first_attempt, last_attempt)
-        VALUES (@ip_address, 1, GETUTCDATE(), GETUTCDATE());
+        VALUES (@ip_address, 1, ISNULL(@event_timestamp, GETUTCDATE()), ISNULL(@event_timestamp, GETUTCDATE()));
     END
 END
 GO
@@ -506,25 +508,27 @@ CREATE PROCEDURE sp_RecordFailedLoginMultiVM
     @logon_type INT = NULL,
     @failure_reason VARCHAR(20) = NULL,
     @source_port INT = NULL,
-    @source_vm_id VARCHAR(100) = NULL
+    @source_vm_id VARCHAR(100) = NULL,
+    @event_timestamp DATETIME2 = NULL
 AS
 BEGIN
-    INSERT INTO FailedLoginAttempts (ip_address, username, hostname, logon_type, failure_reason, source_port, source_vm_id)
-    VALUES (@ip_address, @username, @hostname, @logon_type, @failure_reason, @source_port, @source_vm_id);
+    INSERT INTO FailedLoginAttempts (ip_address, username, hostname, logon_type, failure_reason, source_port, source_vm_id, timestamp)
+    VALUES (@ip_address, @username, @hostname, @logon_type, @failure_reason, @source_port, @source_vm_id,
+            ISNULL(@event_timestamp, GETUTCDATE()));
 
     -- Update or insert suspicious IP (global tracking)
     IF EXISTS (SELECT 1 FROM SuspiciousIPs WHERE ip_address = @ip_address)
     BEGIN
         UPDATE SuspiciousIPs
         SET failed_attempts = failed_attempts + 1,
-            last_attempt = GETUTCDATE(),
+            last_attempt = ISNULL(@event_timestamp, GETUTCDATE()),
             updated_at = GETUTCDATE()
         WHERE ip_address = @ip_address;
     END
     ELSE
     BEGIN
         INSERT INTO SuspiciousIPs (ip_address, failed_attempts, first_attempt, last_attempt)
-        VALUES (@ip_address, 1, GETUTCDATE(), GETUTCDATE());
+        VALUES (@ip_address, 1, ISNULL(@event_timestamp, GETUTCDATE()), ISNULL(@event_timestamp, GETUTCDATE()));
     END
 
     -- Update VM last_seen
