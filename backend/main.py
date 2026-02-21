@@ -1,7 +1,6 @@
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from typing import List, Optional
-import datetime
 import json
 from sse_starlette.sse import EventSourceResponse
 import asyncio
@@ -286,6 +285,15 @@ def get_vm_attacks(vm_id: str):
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("{CALL sp_GetVMStats(?)}", (vm_id,))
+
+        if cursor.description is None:
+            return {
+                "success": True,
+                "vm_id": vm_id,
+                "total_attacks": 0,
+                "unique_attackers": 0,
+            }
+
         columns = [column[0] for column in cursor.description]
         row = cursor.fetchone()
 

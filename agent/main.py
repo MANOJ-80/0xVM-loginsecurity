@@ -154,7 +154,11 @@ class SecurityEventAgent:
         query = f"*[System[EventID={self.event_id}]]"
         flags = win32evtlog.EvtQueryChannelPath | win32evtlog.EvtQueryReverseDirection
 
-        query_handle = win32evtlog.EvtQuery("Security", flags, query)
+        try:
+            query_handle = win32evtlog.EvtQuery("Security", flags, query)
+        except Exception as e:
+            logger.error("EvtQuery failed: %s", e)
+            return []
 
         all_events = []
 
@@ -167,6 +171,9 @@ class SecurityEventAgent:
                 if not handles:
                     break
 
+                # Track how many non-filtered events came from THIS batch
+                batch_start = len(all_events)
+
                 for h in handles:
                     xml_string = win32evtlog.EvtRender(h, win32evtlog.EvtRenderEventXml)
                     try:
@@ -177,14 +184,12 @@ class SecurityEventAgent:
                     except Exception as exc:
                         logger.warning("Failed to parse event XML: %s", exc)
 
-                # If all events in this batch are already seen, stop early.
-                # Since we read newest-first (ReverseDirection), once we hit
-                # events we've already processed, older ones are guaranteed seen too.
-                if all_events:
-                    batch_fps = [
-                        self._event_fingerprint(ev)
-                        for ev in all_events[-len(handles) :]
-                    ]
+                # Early exit: since we read newest-first (ReverseDirection),
+                # once an entire batch of non-filtered events is already seen,
+                # everything older is guaranteed seen too.
+                batch_events = all_events[batch_start:]
+                if batch_events:
+                    batch_fps = [self._event_fingerprint(ev) for ev in batch_events]
                     if all(fp in self._seen_events for fp in batch_fps):
                         break
         finally:
