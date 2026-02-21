@@ -157,7 +157,8 @@ class SecurityEventAgent:
             close_evt_handle(query_handle)
 
         if last_handle is not None:
-            self._bookmark = win32evtlog.EvtCreateBookmark("")
+            if self._bookmark is None:
+                self._bookmark = win32evtlog.EvtCreateBookmark("<Bookmark />")
             win32evtlog.EvtUpdateBookmark(self._bookmark, last_handle)
             self._save_bookmark(self._bookmark)
 
