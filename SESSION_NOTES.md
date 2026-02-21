@@ -201,7 +201,7 @@ Windows logs Event 4625
 | Username    | `EventData/TargetUserName`      | `admin`                     |
 | Domain      | `EventData/TargetDomainName`    | `WIN-VM01`                  |
 | Logon Type  | `EventData/LogonType`           | `10` (RDP)                  |
-| Status      | `EventData/Status`              | `0xc000006d` (bad password) |
+| Status      | `EventData/Status`              | `0xc000006a` (bad username) |
 | Workstation | `EventData/WorkstationName`     | `ATTACK-PC`                 |
 | Source Port | `EventData/IpPort`              | `54321`                     |
 | Timestamp   | `System/TimeCreated@SystemTime` | `2024-01-15T10:30:00Z`      |
@@ -289,7 +289,7 @@ Windows logs Event 4625
 ```yaml
 vm_id: "vm-001"
 collector_url: "http://192.168.56.102:3000/api/v1/events"
-poll_interval: 2
+poll_interval: 10
 event_id: 4625
 ```
 
@@ -319,7 +319,7 @@ ENABLE_AUTO_BLOCK=true
 
 ```yaml
 api_url: http://localhost:3000/api/v1/events
-poll_interval: 2
+poll_interval: 10
 event_id: 4625
 log_channel: ForwardedEvents
 ```

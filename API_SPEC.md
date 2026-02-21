@@ -1,6 +1,7 @@
 # REST API Specification
 
 ## Base URL
+
 ```
 http://localhost:3000/api/v1
 ```
@@ -16,6 +17,7 @@ Returns list of IPs with failed login attempts exceeding threshold.
 **Note**: Full URLs are relative to Base URL. Example: `/suspicious-ips` = `http://localhost:3000/api/v1/suspicious-ips`
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -42,6 +44,7 @@ Returns list of IPs with failed login attempts exceeding threshold.
 Returns aggregated attack statistics.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -73,6 +76,7 @@ Returns aggregated attack statistics.
 Returns list of currently blocked IPs.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -98,6 +102,7 @@ Returns list of currently blocked IPs.
 Manually block an IP address.
 
 **Request Body:**
+
 ```json
 {
   "ip_address": "192.168.1.100",
@@ -107,6 +112,7 @@ Manually block an IP address.
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -123,6 +129,7 @@ Manually block an IP address.
 Remove IP from blocked list.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -139,6 +146,7 @@ Remove IP from blocked list.
 Server-Sent Events endpoint for real-time attack updates.
 
 **Response:**
+
 ```json
 {
   "event": "new_attack",
@@ -160,6 +168,7 @@ Server-Sent Events endpoint for real-time attack updates.
 Returns attack data with geo-location information.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -185,6 +194,7 @@ Returns attack data with geo-location information.
 Register a new VM to the monitoring system.
 
 **Request Body:**
+
 ```json
 {
   "vm_id": "vm-001",
@@ -195,6 +205,7 @@ Register a new VM to the monitoring system.
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -211,6 +222,7 @@ Register a new VM to the monitoring system.
 Returns list of all monitored VMs.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -237,6 +249,7 @@ Returns list of all monitored VMs.
 Returns attack statistics for a specific VM.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -250,9 +263,7 @@ Returns attack statistics for a specific VM.
     { "username": "admin", "count": 30 },
     { "username": "root", "count": 15 }
   ],
-  "top_attackers": [
-    { "ip_address": "192.168.1.100", "count": 20 }
-  ]
+  "top_attackers": [{ "ip_address": "192.168.1.100", "count": 20 }]
 }
 ```
 
@@ -265,6 +276,7 @@ Returns attack statistics for a specific VM.
 Receive failed login events from agents or WEF collector.
 
 **Request Body:**
+
 ```json
 {
   "vm_id": "vm-001",
@@ -276,7 +288,7 @@ Receive failed login events from agents or WEF collector.
       "username": "admin",
       "domain": "WIN-VM01",
       "logon_type": "10",
-      "status": "0xc000006d",
+      "status": "0xC000006A",
       "workstation": "ATTACK-PC",
       "source_port": "54321"
     }
@@ -287,6 +299,7 @@ Receive failed login events from agents or WEF collector.
 **Note**: Authentication is handled at network level. Ensure firewall restricts access to trusted VM IPs only.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -303,6 +316,7 @@ Receive failed login events from agents or WEF collector.
 Block an IP specifically on one VM (not global).
 
 **Request Body:**
+
 ```json
 {
   "ip_address": "192.168.1.100",
@@ -313,6 +327,7 @@ Block an IP specifically on one VM (not global).
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -329,6 +344,7 @@ Block an IP specifically on one VM (not global).
 Returns global aggregated statistics across all VMs.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -365,6 +381,7 @@ Returns global aggregated statistics across all VMs.
 Unregister a VM from the monitoring system.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -381,6 +398,7 @@ Unregister a VM from the monitoring system.
 Returns service health status. Use this from agents to verify the collector is reachable before sending events.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -396,6 +414,7 @@ Returns service health status. Use this from agents to verify the collector is r
 ## Error Responses
 
 ### 400 Bad Request
+
 ```json
 {
   "success": false,
@@ -404,6 +423,7 @@ Returns service health status. Use this from agents to verify the collector is r
 ```
 
 ### 404 Not Found
+
 ```json
 {
   "success": false,
@@ -412,6 +432,7 @@ Returns service health status. Use this from agents to verify the collector is r
 ```
 
 ### 500 Internal Server Error
+
 ```json
 {
   "success": false,
