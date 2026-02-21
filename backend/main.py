@@ -9,6 +9,7 @@ from database import get_db_connection
 
 app = FastAPI(title="Security Monitor API", version="1.0")
 
+
 # --- Models ---
 class EventModel(BaseModel):
     timestamp: str
@@ -20,10 +21,12 @@ class EventModel(BaseModel):
     workstation: Optional[str] = None
     source_port: Optional[str] = None
 
+
 class ReceiveEventsRequest(BaseModel):
     vm_id: str
     hostname: str
     events: List[EventModel]
+
 
 class RegisterVMRequest(BaseModel):
     vm_id: str
@@ -31,10 +34,12 @@ class RegisterVMRequest(BaseModel):
     ip_address: str
     collection_method: str = "agent"
 
+
 class ManualBlockRequest(BaseModel):
     ip_address: str
     reason: str
     duration_minutes: int = 120
+
 
 class PerVMBlockRequest(BaseModel):
     ip_address: str
@@ -42,14 +47,22 @@ class PerVMBlockRequest(BaseModel):
     reason: str
     duration_minutes: int = 120
 
+
 # Global event queue for SSE
 new_events_queue = asyncio.Queue()
 
 # --- Endpoints ---
 
+
 @app.get("/api/v1/health")
 def health_check():
-    health = {"success": True, "status": "healthy", "uptime_seconds": 0, "active_vms": 0, "db_connected": False}
+    health = {
+        "success": True,
+        "status": "healthy",
+        "uptime_seconds": 0,
+        "active_vms": 0,
+        "db_connected": False,
+    }
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -64,6 +77,7 @@ def health_check():
         health["db_connected"] = False
     return health
 
+
 @app.post("/api/v1/events")
 async def receive_events(req: ReceiveEventsRequest):
     try:
@@ -71,26 +85,38 @@ async def receive_events(req: ReceiveEventsRequest):
         cursor = conn.cursor()
         for ev in req.events:
             # Note: sp_RecordFailedLoginMultiVM relies on specific parameter order/names
-            cursor.execute("{CALL sp_RecordFailedLoginMultiVM(?, ?, ?, ?, ?, ?, ?)}", 
-                (ev.ip_address, ev.username, req.hostname, 
-                 int(ev.logon_type) if ev.logon_type and ev.logon_type.isdigit() else None, 
-                 ev.status if ev.status else None,
-                 int(ev.source_port) if ev.source_port and ev.source_port.isdigit() else None,
-                 req.vm_id)
+            cursor.execute(
+                "{CALL sp_RecordFailedLoginMultiVM(?, ?, ?, ?, ?, ?, ?)}",
+                (
+                    ev.ip_address,
+                    ev.username,
+                    req.hostname,
+                    int(ev.logon_type)
+                    if ev.logon_type and ev.logon_type.strip()
+                    else None,
+                    ev.status if ev.status else None,
+                    int(ev.source_port)
+                    if ev.source_port and ev.source_port.strip()
+                    else None,
+                    req.vm_id,
+                ),
             )
-            await new_events_queue.put({
-                "ip_address": ev.ip_address,
-                "username": ev.username,
-                "timestamp": ev.timestamp,
-                "vm_id": req.vm_id
-            })
+            await new_events_queue.put(
+                {
+                    "ip_address": ev.ip_address,
+                    "username": ev.username,
+                    "timestamp": ev.timestamp,
+                    "vm_id": req.vm_id,
+                }
+            )
         conn.commit()
         conn.close()
         return {"success": True, "events_received": len(req.events)}
     except Exception as e:
-        if 'conn' in locals() and hasattr(conn, "close"):
+        if "conn" in locals() and hasattr(conn, "close"):
             conn.close()
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/v1/suspicious-ips")
 def get_suspicious_ips(threshold: int = 5):
@@ -105,12 +131,15 @@ def get_suspicious_ips(threshold: int = 5):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/api/v1/blocked-ips")
 def get_blocked_ips():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT ip_address, blocked_at, block_expires, reason, blocked_by FROM BlockedIPs WHERE is_active=1")
+        cursor.execute(
+            "SELECT ip_address, blocked_at, block_expires, reason, blocked_by FROM BlockedIPs WHERE is_active=1"
+        )
         columns = [column[0] for column in cursor.description]
         results = [dict(zip(columns, row)) for row in cursor.fetchall()]
         conn.close()
@@ -118,54 +147,72 @@ def get_blocked_ips():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/api/v1/block")
 def block_ip(req: ManualBlockRequest):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("{CALL sp_BlockIP(?, ?, ?, ?)}", 
-            (req.ip_address, req.reason, req.duration_minutes, "manual")
+        cursor.execute(
+            "{CALL sp_BlockIP(?, ?, ?, ?)}",
+            (req.ip_address, req.reason, req.duration_minutes, "manual"),
         )
         conn.commit()
         conn.close()
-        return {"success": True, "message": f"IP {req.ip_address} blocked for {req.duration_minutes} minutes"}
+        return {
+            "success": True,
+            "message": f"IP {req.ip_address} blocked for {req.duration_minutes} minutes",
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/api/v1/block/per-vm")
 def block_ip_per_vm(req: PerVMBlockRequest):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("{CALL sp_BlockIPPerVM(?, ?, ?, ?, ?)}", 
-            (req.ip_address, req.vm_id, req.reason, req.duration_minutes, "manual")
+        cursor.execute(
+            "{CALL sp_BlockIPPerVM(?, ?, ?, ?, ?)}",
+            (req.ip_address, req.vm_id, req.reason, req.duration_minutes, "manual"),
         )
         conn.commit()
         conn.close()
-        return {"success": True, "message": f"IP {req.ip_address} blocked on VM {req.vm_id} for {req.duration_minutes} minutes"}
+        return {
+            "success": True,
+            "message": f"IP {req.ip_address} blocked on VM {req.vm_id} for {req.duration_minutes} minutes",
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.delete("/api/v1/block/{ip}")
 def unblock_ip(ip: str):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("UPDATE BlockedIPs SET is_active=0, unblocked_at=GETUTCDATE(), unblocked_by='manual' WHERE ip_address=? AND is_active=1", (ip,))
-        cursor.execute("UPDATE SuspiciousIPs SET status='cleared' WHERE ip_address=?", (ip,))
+        cursor.execute(
+            "UPDATE BlockedIPs SET is_active=0, unblocked_at=GETUTCDATE(), unblocked_by='manual' WHERE ip_address=? AND is_active=1",
+            (ip,),
+        )
+        cursor.execute(
+            "UPDATE SuspiciousIPs SET status='cleared' WHERE ip_address=?", (ip,)
+        )
         conn.commit()
         conn.close()
         return {"success": True, "message": f"IP {ip} unblocked"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/api/v1/vms")
 def register_vm(req: RegisterVMRequest):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("{CALL sp_RegisterVM(?, ?, ?, ?)}", 
-            (req.vm_id, req.hostname, req.ip_address, req.collection_method)
+        cursor.execute(
+            "{CALL sp_RegisterVM(?, ?, ?, ?)}",
+            (req.vm_id, req.hostname, req.ip_address, req.collection_method),
         )
         conn.commit()
         conn.close()
@@ -173,18 +220,22 @@ def register_vm(req: RegisterVMRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/api/v1/vms")
 def list_vms():
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT vm_id, hostname, ip_address, collection_method, status, last_seen FROM VMSources")
+        cursor.execute(
+            "SELECT vm_id, hostname, ip_address, collection_method, status, last_seen FROM VMSources"
+        )
         columns = [column[0] for column in cursor.description]
         results = [dict(zip(columns, row)) for row in cursor.fetchall()]
         conn.close()
         return {"success": True, "data": results, "count": len(results)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.delete("/api/v1/vms/{vm_id}")
 def delete_vm(vm_id: str):
@@ -198,6 +249,7 @@ def delete_vm(vm_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/api/v1/vms/{vm_id}/attacks")
 def get_vm_attacks(vm_id: str):
     try:
@@ -207,15 +259,21 @@ def get_vm_attacks(vm_id: str):
         columns = [column[0] for column in cursor.description]
         row = cursor.fetchone()
         conn.close()
-        
+
         if row:
             data = dict(zip(columns, row))
             data["success"] = True
             return data
         else:
-            return {"success": True, "vm_id": vm_id, "total_attacks": 0, "unique_attackers": 0}
+            return {
+                "success": True,
+                "vm_id": vm_id,
+                "total_attacks": 0,
+                "unique_attackers": 0,
+            }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/v1/feed")
 async def feed(request: Request):
@@ -223,30 +281,33 @@ async def feed(request: Request):
         while True:
             if await request.is_disconnected():
                 break
-            
+
             try:
                 # Wait for a new event from the queue
                 event_data = await asyncio.wait_for(new_events_queue.get(), timeout=1.0)
-                yield {
-                    "event": "new_attack",
-                    "data": str(event_data)
-                }
+                yield {"event": "new_attack", "data": str(event_data)}
             except asyncio.TimeoutError:
-                yield {
-                    "event": "ping",
-                    "data": "keep-alive"
-                }
+                yield {"event": "ping", "data": "keep-alive"}
 
     return EventSourceResponse(event_generator())
+
 
 # Placeholder endpoints for Statistics
 @app.get("/api/v1/statistics")
 def get_statistics():
-    return {"success": True, "data": {"total_failed_attempts": 0, "unique_attackers": 0, "blocked_ips": 0}}
+    return {
+        "success": True,
+        "data": {"total_failed_attempts": 0, "unique_attackers": 0, "blocked_ips": 0},
+    }
+
 
 @app.get("/api/v1/statistics/global")
 def get_global_statistics():
-    return {"success": True, "data": {"total_failed_attempts": 0, "unique_attackers": 0, "blocked_ips": 0}}
+    return {
+        "success": True,
+        "data": {"total_failed_attempts": 0, "unique_attackers": 0, "blocked_ips": 0},
+    }
+
 
 @app.get("/api/v1/geo-attacks")
 def get_geo_attacks():

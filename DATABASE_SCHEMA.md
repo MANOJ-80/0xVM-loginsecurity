@@ -1,5 +1,266 @@
 # Database Schema (MSSQL)
 
+## Complete Setup Script
+
+Run this script to initialize the database from scratch:
+
+```sql
+USE SecurityMonitor;
+GO
+
+/* ===============================
+   DROP STORED PROCEDURES
+================================= */
+
+IF OBJECT_ID('sp_GetVMStats', 'P') IS NOT NULL DROP PROCEDURE sp_GetVMStats;
+IF OBJECT_ID('sp_BlockIPPerVM', 'P') IS NOT NULL DROP PROCEDURE sp_BlockIPPerVM;
+IF OBJECT_ID('sp_RegisterVM', 'P') IS NOT NULL DROP PROCEDURE sp_RegisterVM;
+IF OBJECT_ID('sp_RecordFailedLoginMultiVM', 'P') IS NOT NULL DROP PROCEDURE sp_RecordFailedLoginMultiVM;
+IF OBJECT_ID('sp_BlockIP', 'P') IS NOT NULL DROP PROCEDURE sp_BlockIP;
+IF OBJECT_ID('sp_GetSuspiciousIPs', 'P') IS NOT NULL DROP PROCEDURE sp_GetSuspiciousIPs;
+IF OBJECT_ID('sp_RecordFailedLogin', 'P') IS NOT NULL DROP PROCEDURE sp_RecordFailedLogin;
+GO
+
+/* ===============================
+   DROP TABLES (order matters)
+================================= */
+
+IF OBJECT_ID('PerVMThresholds', 'U') IS NOT NULL DROP TABLE PerVMThresholds;
+IF OBJECT_ID('AttackStatistics', 'U') IS NOT NULL DROP TABLE AttackStatistics;
+IF OBJECT_ID('BlockedIPs', 'U') IS NOT NULL DROP TABLE BlockedIPs;
+IF OBJECT_ID('SuspiciousIPs', 'U') IS NOT NULL DROP TABLE SuspiciousIPs;
+IF OBJECT_ID('FailedLoginAttempts', 'U') IS NOT NULL DROP TABLE FailedLoginAttempts;
+IF OBJECT_ID('VMSources', 'U') IS NOT NULL DROP TABLE VMSources;
+IF OBJECT_ID('Settings', 'U') IS NOT NULL DROP TABLE Settings;
+GO
+
+/* ===============================
+   CREATE TABLES (FIXED VERSION)
+================================= */
+
+CREATE TABLE FailedLoginAttempts (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    ip_address VARCHAR(45) NOT NULL,
+    username NVARCHAR(256),
+    hostname NVARCHAR(256),
+    logon_type INT,
+    failure_reason VARCHAR(20),
+    source_port INT,
+    timestamp DATETIME2 DEFAULT GETUTCDATE(),
+    event_id INT DEFAULT 4625,
+    source_vm_id VARCHAR(100)
+);
+
+CREATE INDEX idx_ip_timestamp ON FailedLoginAttempts(ip_address, timestamp);
+CREATE INDEX idx_timestamp ON FailedLoginAttempts(timestamp);
+CREATE INDEX idx_source_vm ON FailedLoginAttempts(source_vm_id, timestamp);
+GO
+
+
+CREATE TABLE SuspiciousIPs (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    ip_address VARCHAR(45) NOT NULL UNIQUE,
+    failed_attempts INT DEFAULT 1,
+    first_attempt DATETIME2,
+    last_attempt DATETIME2,
+    target_usernames NVARCHAR(MAX),
+    status VARCHAR(20) DEFAULT 'active',
+    created_at DATETIME2 DEFAULT GETUTCDATE(),
+    updated_at DATETIME2 DEFAULT GETUTCDATE()
+);
+
+CREATE INDEX idx_status ON SuspiciousIPs(status);
+CREATE INDEX idx_ip ON SuspiciousIPs(ip_address);
+GO
+
+
+CREATE TABLE BlockedIPs (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    ip_address VARCHAR(45) NOT NULL,
+    blocked_at DATETIME2 DEFAULT GETUTCDATE(),
+    block_expires DATETIME2,
+    reason NVARCHAR(500),
+    blocked_by VARCHAR(50) DEFAULT 'auto',
+    is_active BIT DEFAULT 1,
+    unblocked_at DATETIME2 NULL,
+    unblocked_by VARCHAR(50) NULL,
+    scope VARCHAR(20) DEFAULT 'global',
+    target_vm_id VARCHAR(100) NULL
+);
+
+CREATE INDEX idx_active ON BlockedIPs(is_active);
+CREATE INDEX idx_expires ON BlockedIPs(block_expires);
+CREATE INDEX idx_scope ON BlockedIPs(scope, is_active);
+GO
+
+
+CREATE TABLE Settings (
+    key_name VARCHAR(100) PRIMARY KEY,
+    value NVARCHAR(500),
+    description NVARCHAR(500),
+    updated_at DATETIME2 DEFAULT GETUTCDATE()
+);
+
+INSERT INTO Settings (key_name, value, description) VALUES
+('THRESHOLD', '5', 'Failed attempts before marking as suspicious'),
+('TIME_WINDOW', '5', 'Time window in minutes for threshold'),
+('BLOCK_DURATION', '60', 'Auto-block duration in minutes'),
+('ENABLE_AUTO_BLOCK', 'true', 'Enable automatic IP blocking');
+GO
+
+
+CREATE TABLE VMSources (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    vm_id VARCHAR(100) NOT NULL UNIQUE,
+    hostname NVARCHAR(256),
+    ip_address VARCHAR(45),
+    collection_method VARCHAR(20),
+    status VARCHAR(20) DEFAULT 'active',
+    last_seen DATETIME2,
+    created_at DATETIME2 DEFAULT GETUTCDATE()
+);
+
+CREATE INDEX idx_vm_id ON VMSources(vm_id);
+CREATE INDEX idx_status ON VMSources(status);
+GO
+
+
+/* ===============================
+   STORED PROCEDURES (FIXED)
+================================= */
+
+CREATE PROCEDURE sp_RecordFailedLoginMultiVM
+    @ip_address VARCHAR(45),
+    @username NVARCHAR(256),
+    @hostname NVARCHAR(256) = NULL,
+    @logon_type INT = NULL,
+    @failure_reason VARCHAR(20) = NULL,
+    @source_port INT = NULL,
+    @source_vm_id VARCHAR(100) = NULL
+AS
+BEGIN
+    INSERT INTO FailedLoginAttempts
+    (ip_address, username, hostname, logon_type, failure_reason, source_port, source_vm_id)
+    VALUES
+    (@ip_address, @username, @hostname, @logon_type, @failure_reason, @source_port, @source_vm_id);
+
+    IF EXISTS (SELECT 1 FROM SuspiciousIPs WHERE ip_address = @ip_address)
+    BEGIN
+        UPDATE SuspiciousIPs
+        SET failed_attempts = failed_attempts + 1,
+            last_attempt = GETUTCDATE(),
+            updated_at = GETUTCDATE()
+        WHERE ip_address = @ip_address;
+    END
+    ELSE
+    BEGIN
+        INSERT INTO SuspiciousIPs (ip_address, failed_attempts, first_attempt, last_attempt)
+        VALUES (@ip_address, 1, GETUTCDATE(), GETUTCDATE());
+    END
+END
+GO
+
+
+CREATE PROCEDURE sp_GetSuspiciousIPs
+    @threshold INT = 5
+AS
+BEGIN
+    SELECT ip_address, failed_attempts, first_attempt, last_attempt, status
+    FROM SuspiciousIPs
+    WHERE failed_attempts >= @threshold
+      AND status = 'active'
+    ORDER BY failed_attempts DESC;
+END
+GO
+
+
+CREATE PROCEDURE sp_BlockIP
+    @ip_address VARCHAR(45),
+    @reason NVARCHAR(500),
+    @duration_minutes INT = 60,
+    @blocked_by VARCHAR(50) = 'auto'
+AS
+BEGIN
+    INSERT INTO BlockedIPs (ip_address, reason, block_expires, blocked_by)
+    VALUES (@ip_address, @reason, DATEADD(MINUTE, @duration_minutes, GETUTCDATE()), @blocked_by);
+
+    UPDATE SuspiciousIPs SET status = 'blocked' WHERE ip_address = @ip_address;
+END
+GO
+
+
+CREATE PROCEDURE sp_RegisterVM
+    @vm_id VARCHAR(100),
+    @hostname NVARCHAR(256),
+    @ip_address VARCHAR(45),
+    @collection_method VARCHAR(20) = 'agent'
+AS
+BEGIN
+    IF EXISTS (SELECT 1 FROM VMSources WHERE vm_id = @vm_id)
+    BEGIN
+        UPDATE VMSources
+        SET hostname = @hostname,
+            ip_address = @ip_address,
+            collection_method = @collection_method,
+            status = 'active',
+            last_seen = GETUTCDATE()
+        WHERE vm_id = @vm_id;
+    END
+    ELSE
+    BEGIN
+        INSERT INTO VMSources (vm_id, hostname, ip_address, collection_method, status, last_seen)
+        VALUES (@vm_id, @hostname, @ip_address, @collection_method, 'active', GETUTCDATE());
+    END
+END
+GO
+
+
+CREATE PROCEDURE sp_BlockIPPerVM
+    @ip_address VARCHAR(45),
+    @target_vm_id VARCHAR(100),
+    @reason NVARCHAR(500),
+    @duration_minutes INT = 60,
+    @blocked_by VARCHAR(50) = 'auto'
+AS
+BEGIN
+    INSERT INTO BlockedIPs (ip_address, reason, block_expires, blocked_by, scope, target_vm_id)
+    VALUES (@ip_address, @reason, DATEADD(MINUTE, @duration_minutes, GETUTCDATE()), @blocked_by, 'per-vm', @target_vm_id);
+
+    IF NOT EXISTS (SELECT 1 FROM SuspiciousIPs WHERE ip_address = @ip_address)
+    BEGIN
+        INSERT INTO SuspiciousIPs (ip_address, failed_attempts, first_attempt, last_attempt, status)
+        VALUES (@ip_address, 1, GETUTCDATE(), GETUTCDATE(), 'blocked');
+    END
+    ELSE
+    BEGIN
+        UPDATE SuspiciousIPs SET status = 'blocked', updated_at = GETUTCDATE() WHERE ip_address = @ip_address;
+    END
+END
+GO
+
+
+CREATE PROCEDURE sp_GetVMStats
+    @vm_id VARCHAR(100)
+AS
+BEGIN
+    SELECT
+        source_vm_id as vm_id,
+        COUNT(*) as total_attacks,
+        COUNT(DISTINCT ip_address) as unique_attackers,
+        (
+            SELECT COUNT(*)
+            FROM BlockedIPs b
+            WHERE b.is_active = 1
+              AND (b.scope = 'global' OR (b.scope = 'per-vm' AND b.target_vm_id = @vm_id))
+        ) as blocked_count,
+        MAX(timestamp) as last_attack
+    FROM FailedLoginAttempts
+    WHERE source_vm_id = @vm_id
+    GROUP BY source_vm_id;
+END
+GO
+```
+
 ## Tables
 
 ### 1. FailedLoginAttempts

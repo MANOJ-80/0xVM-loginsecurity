@@ -16,12 +16,13 @@ except ImportError:
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
+    format="%(asctime)s [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
 
 # XML namespace used in Windows event XML
-EVT_NS = {'e': 'http://schemas.microsoft.com/win/2004/08/events/event'}
+EVT_NS = {"e": "http://schemas.microsoft.com/win/2004/08/events/event"}
+
 
 class SecurityEventAgent:
     """
@@ -29,11 +30,12 @@ class SecurityEventAgent:
     (failed logon) and sends normalized events to the central
     collector API.
     """
+
     def __init__(self, config):
-        self.vm_id = config['vm_id']
-        self.collector_url = config['collector_url']
-        self.poll_interval = config.get('poll_interval', 10)
-        self.event_id = config.get('event_id', 4625)
+        self.vm_id = config["vm_id"]
+        self.collector_url = config["collector_url"]
+        self.poll_interval = config.get("poll_interval", 10)
+        self.event_id = config.get("event_id", 4625)
         self.hostname = socket.gethostname()
 
         self._retry_queue = collections.deque(maxlen=5000)
@@ -41,10 +43,11 @@ class SecurityEventAgent:
         self._bookmark = self._load_bookmark()
 
     def _load_bookmark(self):
-        if not win32evtlog: return None
+        if not win32evtlog:
+            return None
         if os.path.exists(self._bookmark_path):
             try:
-                with open(self._bookmark_path, 'r') as f:
+                with open(self._bookmark_path, "r") as f:
                     xml_text = f.read().strip()
                 if xml_text:
                     return win32evtlog.EvtCreateBookmark(xml_text)
@@ -53,29 +56,32 @@ class SecurityEventAgent:
         return None
 
     def _save_bookmark(self, bookmark_handle):
-        if not win32evtlog: return
+        if not win32evtlog:
+            return
         xml_text = win32evtlog.EvtRender(bookmark_handle, win32evtlog.EvtRenderBookmark)
-        with open(self._bookmark_path, 'w') as f:
+        with open(self._bookmark_path, "w") as f:
             f.write(xml_text)
 
     @staticmethod
     def parse_event_xml(xml_string):
         root = ET.fromstring(xml_string)
         data = {}
-        for item in root.findall('.//e:Data', EVT_NS):
-            name = item.get('Name')
+        for item in root.findall(".//e:Data", EVT_NS):
+            name = item.get("Name")
             if name:
                 data[name] = item.text
-        time_created = root.find('.//e:TimeCreated', EVT_NS)
+        time_created = root.find(".//e:TimeCreated", EVT_NS)
         return {
-            'timestamp': time_created.get('SystemTime') if time_created is not None else None,
-            'ip_address': data.get('IpAddress'),
-            'username': data.get('TargetUserName'),
-            'domain': data.get('TargetDomainName'),
-            'logon_type': data.get('LogonType'),
-            'status': data.get('Status'),
-            'workstation': data.get('WorkstationName'),
-            'source_port': data.get('IpPort'),
+            "timestamp": time_created.get("SystemTime")
+            if time_created is not None
+            else None,
+            "ip_address": data.get("IpAddress"),
+            "username": data.get("TargetUserName"),
+            "domain": data.get("TargetDomainName"),
+            "logon_type": data.get("LogonType"),
+            "status": data.get("Status"),
+            "workstation": data.get("WorkstationName"),
+            "source_port": data.get("IpPort"),
         }
 
     def query_new_events(self):
@@ -85,37 +91,46 @@ class SecurityEventAgent:
 
         query = f"*[System[EventID={self.event_id}]]"
         flags = win32evtlog.EvtQueryChannelPath | win32evtlog.EvtQueryForwardDirection
-        query_handle = win32evtlog.EvtQuery('Security', flags, query)
+        query_handle = win32evtlog.EvtQuery("Security", flags, query)
 
         if self._bookmark is not None:
             try:
-                win32evtlog.EvtSeek(query_handle, 1, self._bookmark, win32evtlog.EvtSeekRelativeToBookmark)
+                win32evtlog.EvtSeek(
+                    query_handle,
+                    1,
+                    self._bookmark,
+                    win32evtlog.EvtSeekRelativeToBookmark,
+                )
             except Exception:
                 logger.debug("Bookmark seek failed; reading from start")
 
         new_events = []
         last_handle = None
 
-        while True:
-            try:
-                handles = win32evtlog.EvtNext(query_handle, 50, -1, 0)
-            except Exception:
-                break
-            if not handles:
-                break
-
-            for h in handles:
-                xml_string = win32evtlog.EvtRender(h, win32evtlog.EvtRenderEventXml)
+        try:
+            while True:
                 try:
-                    parsed = self.parse_event_xml(xml_string)
-                    if parsed.get('ip_address') and parsed['ip_address'] != '-':
-                        new_events.append(parsed)
-                except Exception as exc:
-                    logger.warning("Failed to parse event XML: %s", exc)
-                last_handle = h
+                    handles = win32evtlog.EvtNext(query_handle, 50, -1, 0)
+                except Exception:
+                    break
+                if not handles:
+                    break
+
+                for h in handles:
+                    xml_string = win32evtlog.EvtRender(h, win32evtlog.EvtRenderEventXml)
+                    try:
+                        parsed = self.parse_event_xml(xml_string)
+                        if parsed.get("ip_address") and parsed["ip_address"] != "-":
+                            new_events.append(parsed)
+                    except Exception as exc:
+                        logger.warning("Failed to parse event XML: %s", exc)
+                    last_handle = h
+        finally:
+            if query_handle:
+                win32evtlog.EvtClose(query_handle)
 
         if last_handle is not None:
-            self._bookmark = win32evtlog.EvtCreateBookmark(None)
+            self._bookmark = win32evtlog.EvtCreateBookmark("")
             win32evtlog.EvtUpdateBookmark(self._bookmark, last_handle)
             self._save_bookmark(self._bookmark)
 
@@ -123,12 +138,14 @@ class SecurityEventAgent:
 
     def send_events(self, events, is_retry=False):
         payload = {
-            'vm_id': self.vm_id,
-            'hostname': self.hostname,
-            'events': events,
+            "vm_id": self.vm_id,
+            "hostname": self.hostname,
+            "events": events,
         }
         try:
-            response = requests.post(self.collector_url, json=payload, verify=False, timeout=30)
+            response = requests.post(
+                self.collector_url, json=payload, verify=False, timeout=30
+            )
             if response.status_code == 200:
                 logger.info("Sent %d event(s) to collector", len(events))
                 return True
@@ -142,7 +159,8 @@ class SecurityEventAgent:
         return False
 
     def _flush_retry_queue(self):
-        if not self._retry_queue: return
+        if not self._retry_queue:
+            return
         batch = list(self._retry_queue)
         logger.info("Retrying %d queued event(s)...", len(batch))
         success = self.send_events(batch, is_retry=True)
@@ -157,7 +175,11 @@ class SecurityEventAgent:
                 events = self.query_new_events()
                 if events:
                     for ev in events:
-                        logger.info("Failed login: user=%s  ip=%s", ev.get('username'), ev.get('ip_address'))
+                        logger.info(
+                            "Failed login: user=%s  ip=%s",
+                            ev.get("username"),
+                            ev.get("ip_address"),
+                        )
                     self.send_events(events)
                 elif self._retry_queue:
                     self._flush_retry_queue()
@@ -165,10 +187,12 @@ class SecurityEventAgent:
                 logger.exception("Unexpected error: %s", exc)
             time.sleep(self.poll_interval)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     import yaml
+
     try:
-        with open('config.yaml') as f:
+        with open("config.yaml") as f:
             config = yaml.safe_load(f)
         agent = SecurityEventAgent(config)
         agent.run()
