@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from pydantic import BaseModel
 from typing import List, Optional
 import datetime
+import json
 from sse_starlette.sse import EventSourceResponse
 import asyncio
 
@@ -316,7 +317,7 @@ async def feed(request: Request):
             try:
                 # Wait for a new event from the queue
                 event_data = await asyncio.wait_for(new_events_queue.get(), timeout=1.0)
-                yield {"event": "new_attack", "data": str(event_data)}
+                yield {"event": "new_attack", "data": json.dumps(event_data)}
             except asyncio.TimeoutError:
                 yield {"event": "ping", "data": "keep-alive"}
 

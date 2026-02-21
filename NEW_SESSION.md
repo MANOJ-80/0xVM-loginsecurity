@@ -903,3 +903,81 @@ Two problems working together:
 - Localhost-origin events are silently dropped.
 
 ---
+
+# Session 3 Fixes (Dedup, Timestamp Query, SP 8-param, Connection Cleanup)
+
+## Bug: Bookmark EvtSeek permanently broken on user's pywin32
+
+### Root Cause
+
+`win32evtlog.EvtSeek()` on user's pywin32 build refuses all argument
+combinations — `PyHANDLE` type mismatch, `int()` cast gives error 87
+("The parameter is incorrect."). This is a pywin32 compatibility issue
+that cannot be fixed in user code.
+
+### Fix Applied (agent/main.py)
+
+**Replaced bookmark-based seeking entirely** with two complementary
+mechanisms:
+
+1. **Timestamp-based XPath query narrowing.** Each cycle tracks the latest
+   `SystemTime` seen. On the next cycle, the XPath query includes
+   `TimeCreated[@SystemTime>='<last_ts>']` so Windows only returns events
+   from the last seen timestamp onward. This prevents re-reading the entire
+   event log history.
+
+   - Persisted to `vm-001_last_ts.txt` so it survives agent restarts.
+
+2. **Fingerprint-based dedup (already working).** Every event gets a SHA-256
+   fingerprint from `SystemTime + ip + username + source_port`. Events
+   already in `_seen_events` are skipped. Since the timestamp query uses
+   `>=` (not `>`), the last cycle's events will be re-read but dedup
+   correctly filters them.
+
+   - `_seen_events` set is capped at 50,000 entries to prevent unbounded
+     memory growth. Old fingerprints are trimmed on save. This is safe
+     because the timestamp query already prevents re-reading ancient events.
+   - Persisted to `vm-001_seen.json`.
+
+### Removed Code
+
+- All bookmark-related code (`EvtCreateBookmark`, `EvtUpdateBookmark`,
+  `EvtSeek`, `EvtRender(..., EvtRenderBookmark)`, `_bookmark_path`,
+  `_bookmark_xml`, `_load_bookmark`, `_save_bookmark`).
+- Old `vm-001_bookmark.xml` file is no longer used.
+
+## Bug: HTTP 500 from backend on event insert
+
+### Root Cause
+
+Backend was passing 8 parameters (`@event_timestamp`) to stored procedure
+`sp_RecordFailedLoginMultiVM` but the SP in the DB only accepted 7 params.
+
+### Fix Applied
+
+- Updated `DATABASE_SCHEMA.md` with new SP definition accepting
+  `@event_timestamp DATETIME2 = NULL` as 8th parameter.
+- SP uses `ISNULL(@event_timestamp, GETUTCDATE())` for the timestamp column.
+- User re-created SP in SSMS — **confirmed working.**
+
+## Bug: DB connection leak in backend
+
+### Root Cause
+
+Multiple API endpoints in `backend/main.py` opened DB connections but only
+closed them in the success path. Any exception would leak the connection.
+
+### Fix Applied
+
+All 11 endpoints now use `try/finally` blocks to guarantee `conn.close()`
+runs regardless of success or failure.
+
+## Confirmed Working (End-to-End Test)
+
+- SMB failed login from Collector VM (`192.168.56.102`) to Source VM
+  (`192.168.56.101`) with users `test`, `test123`, `itachi`
+- Agent captured all 3 events, sent to collector, stored in DB
+- Dedup correctly filtered duplicate reads (e.g., `Read 6 event(s), 0 new`)
+- Backend returned HTTP 200, events visible in SSMS
+
+---
