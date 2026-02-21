@@ -126,8 +126,10 @@ class SecurityEventAgent:
                         logger.warning("Failed to parse event XML: %s", exc)
                     last_handle = h
         finally:
-            if query_handle:
+            try:
                 win32evtlog.EvtClose(query_handle)
+            except AttributeError:
+                pass
 
         if last_handle is not None:
             self._bookmark = win32evtlog.EvtCreateBookmark("")
