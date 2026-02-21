@@ -166,10 +166,11 @@ class SecurityEventAgent:
         if self._bookmark_xml:
             try:
                 seek_handle = win32evtlog.EvtCreateBookmark(self._bookmark_xml)
+                # pywin32 returns PyHANDLE but EvtSeek expects int
                 win32evtlog.EvtSeek(
                     query_handle,
                     1,  # skip 1 past the bookmarked event
-                    seek_handle,
+                    int(seek_handle),
                     win32evtlog.EvtSeekRelativeToBookmark,
                 )
                 close_evt_handle(seek_handle)
