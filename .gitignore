@@ -45,3 +45,13 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .next/
+
+# Internal / personal docs (keep local only)
+NEW_SESSION.md
+SESSION_NOTES.md
+FAILURE_REPORT.MD
+APPLICATION_FLOW.md
+FIREWALL_INTEGRATION.md
+MULTI_VM_COLLECTION.md
+SETUP.md
+WINDOWS_LOG_MONITORING_DEEP_DIVE.md
