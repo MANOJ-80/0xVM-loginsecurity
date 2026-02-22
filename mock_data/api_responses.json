@@ -1,0 +1,421 @@
+{
+  "_info": {
+    "description": "Mock API responses for frontend development. Each key is an API endpoint with its method, URL, and sample response.",
+    "base_url": "http://192.168.56.102:3000",
+    "generated": "2026-02-22"
+  },
+
+  "GET /api/v1/health": {
+    "success": true,
+    "status": "healthy",
+    "uptime_seconds": 84720,
+    "active_vms": 3,
+    "db_connected": true
+  },
+
+  "POST /api/v1/events": {
+    "_request_body": {
+      "vm_id": "vm-001",
+      "hostname": "DESKTOP-P9H3C6A",
+      "events": [
+        {
+          "timestamp": "2026-02-22 14:23:45.1234567",
+          "ip_address": "10.0.0.50",
+          "username": "admin",
+          "domain": "WORKGROUP",
+          "logon_type": "3",
+          "status": "0xC000006D",
+          "workstation": "ATTACKER-PC",
+          "source_port": "49832"
+        }
+      ]
+    },
+    "_response": {
+      "success": true,
+      "events_received": 1
+    }
+  },
+
+  "GET /api/v1/suspicious-ips": {
+    "success": true,
+    "data": [
+      {
+        "ip_address": "192.168.56.102",
+        "failed_attempts": 47,
+        "first_attempt": "2026-02-18T09:12:33.000000",
+        "last_attempt": "2026-02-22T14:23:45.000000",
+        "status": "active"
+      },
+      {
+        "ip_address": "10.0.0.50",
+        "failed_attempts": 23,
+        "first_attempt": "2026-02-19T11:45:02.000000",
+        "last_attempt": "2026-02-22T13:58:12.000000",
+        "status": "active"
+      },
+      {
+        "ip_address": "172.16.1.100",
+        "failed_attempts": 15,
+        "first_attempt": "2026-02-20T08:30:00.000000",
+        "last_attempt": "2026-02-22T10:15:33.000000",
+        "status": "active"
+      },
+      {
+        "ip_address": "192.168.1.200",
+        "failed_attempts": 12,
+        "first_attempt": "2026-02-21T16:20:10.000000",
+        "last_attempt": "2026-02-22T12:44:50.000000",
+        "status": "active"
+      },
+      {
+        "ip_address": "10.10.10.5",
+        "failed_attempts": 8,
+        "first_attempt": "2026-02-22T06:00:00.000000",
+        "last_attempt": "2026-02-22T08:30:00.000000",
+        "status": "blocked"
+      },
+      {
+        "ip_address": "203.0.113.42",
+        "failed_attempts": 6,
+        "first_attempt": "2026-02-21T22:10:00.000000",
+        "last_attempt": "2026-02-22T01:45:00.000000",
+        "status": "active"
+      }
+    ],
+    "count": 6
+  },
+
+  "GET /api/v1/blocked-ips": {
+    "success": true,
+    "data": [
+      {
+        "ip_address": "10.10.10.5",
+        "blocked_at": "2026-02-22T08:35:00.000000",
+        "block_expires": "2026-02-22T09:35:00.000000",
+        "reason": "Exceeded threshold: 8 failed attempts in 5 minutes",
+        "blocked_by": "auto"
+      },
+      {
+        "ip_address": "198.51.100.77",
+        "blocked_at": "2026-02-21T18:00:00.000000",
+        "block_expires": "2026-02-21T20:00:00.000000",
+        "reason": "Brute force attack on admin account",
+        "blocked_by": "manual"
+      },
+      {
+        "ip_address": "45.33.32.156",
+        "blocked_at": "2026-02-22T02:15:00.000000",
+        "block_expires": "2026-02-22T04:15:00.000000",
+        "reason": "Distributed attack across multiple VMs",
+        "blocked_by": "manual"
+      }
+    ],
+    "count": 3
+  },
+
+  "POST /api/v1/block": {
+    "_request_body": {
+      "ip_address": "10.0.0.50",
+      "reason": "Repeated brute force attempts on Administrator",
+      "duration_minutes": 120
+    },
+    "_response": {
+      "success": true,
+      "message": "IP 10.0.0.50 blocked for 120 minutes"
+    }
+  },
+
+  "POST /api/v1/block/per-vm": {
+    "_request_body": {
+      "ip_address": "172.16.1.100",
+      "vm_id": "vm-002",
+      "reason": "Targeted attack on vm-002 RDP",
+      "duration_minutes": 60
+    },
+    "_response": {
+      "success": true,
+      "message": "IP 172.16.1.100 blocked on VM vm-002 for 60 minutes"
+    }
+  },
+
+  "DELETE /api/v1/block/{ip}": {
+    "_example_url": "/api/v1/block/10.10.10.5",
+    "_response": {
+      "success": true,
+      "message": "IP 10.10.10.5 unblocked"
+    }
+  },
+
+  "POST /api/v1/vms": {
+    "_request_body": {
+      "vm_id": "vm-001",
+      "hostname": "DESKTOP-P9H3C6A",
+      "ip_address": "192.168.56.101",
+      "collection_method": "agent"
+    },
+    "_response": {
+      "success": true,
+      "message": "VM vm-001 registered successfully"
+    }
+  },
+
+  "GET /api/v1/vms": {
+    "success": true,
+    "data": [
+      {
+        "vm_id": "vm-001",
+        "hostname": "DESKTOP-P9H3C6A",
+        "ip_address": "192.168.56.101",
+        "collection_method": "agent",
+        "status": "active",
+        "last_seen": "2026-02-22T14:23:45.000000"
+      },
+      {
+        "vm_id": "vm-002",
+        "hostname": "SERVER-DC01",
+        "ip_address": "192.168.56.103",
+        "collection_method": "agent",
+        "status": "active",
+        "last_seen": "2026-02-22T14:20:10.000000"
+      },
+      {
+        "vm_id": "vm-003",
+        "hostname": "WEB-SERVER",
+        "ip_address": "192.168.56.104",
+        "collection_method": "agent",
+        "status": "inactive",
+        "last_seen": "2026-02-20T09:00:00.000000"
+      }
+    ],
+    "count": 3
+  },
+
+  "DELETE /api/v1/vms/{vm_id}": {
+    "_example_url": "/api/v1/vms/vm-003",
+    "_response": {
+      "success": true,
+      "message": "VM vm-003 unregistered"
+    }
+  },
+
+  "GET /api/v1/vms/{vm_id}/attacks": {
+    "_example_url": "/api/v1/vms/vm-001/attacks",
+    "_response": {
+      "success": true,
+      "vm_id": "vm-001",
+      "total_attacks": 62,
+      "unique_attackers": 4,
+      "blocked_count": 1,
+      "last_attack": "2026-02-22T14:23:45.000000"
+    }
+  },
+
+  "GET /api/v1/vms/{vm_id}/attacks (empty)": {
+    "_example_url": "/api/v1/vms/vm-003/attacks",
+    "_response": {
+      "success": true,
+      "vm_id": "vm-003",
+      "total_attacks": 0,
+      "unique_attackers": 0
+    }
+  },
+
+  "GET /api/v1/statistics": {
+    "success": true,
+    "data": {
+      "total_failed_attempts": 111,
+      "unique_attackers": 6,
+      "blocked_ips": 3
+    }
+  },
+
+  "GET /api/v1/statistics/global": {
+    "success": true,
+    "data": {
+      "total_failed_attempts": 111,
+      "unique_attackers": 6,
+      "blocked_ips": 3
+    }
+  },
+
+  "GET /api/v1/geo-attacks": {
+    "success": true,
+    "data": []
+  },
+
+  "GET /api/v1/feed (SSE)": {
+    "_description": "Server-Sent Events stream. Each event is either a new_attack or a ping keep-alive.",
+    "_sample_events": [
+      {
+        "event": "new_attack",
+        "data": {
+          "ip_address": "192.168.56.102",
+          "username": "admin",
+          "timestamp": "2026-02-22 14:23:45.1234567",
+          "vm_id": "vm-001"
+        }
+      },
+      {
+        "event": "new_attack",
+        "data": {
+          "ip_address": "10.0.0.50",
+          "username": "Administrator",
+          "timestamp": "2026-02-22 14:23:50.9876543",
+          "vm_id": "vm-002"
+        }
+      },
+      {
+        "event": "ping",
+        "data": "keep-alive"
+      }
+    ],
+    "_usage_note": "Connect with EventSource('http://192.168.56.102:3000/api/v1/feed'). The data field for new_attack events is a JSON string that needs to be parsed."
+  },
+
+  "_failed_login_events_sample": {
+    "_description": "Sample of what FailedLoginAttempts rows look like in the DB. Useful for building table/list views.",
+    "data": [
+      {
+        "id": 1,
+        "ip_address": "192.168.56.102",
+        "username": "admin",
+        "hostname": "DESKTOP-P9H3C6A",
+        "logon_type": 3,
+        "failure_reason": "0xC000006D",
+        "source_port": 49832,
+        "timestamp": "2026-02-22T14:23:45.1234567",
+        "event_id": 4625,
+        "source_vm_id": "vm-001"
+      },
+      {
+        "id": 2,
+        "ip_address": "192.168.56.102",
+        "username": "Administrator",
+        "hostname": "DESKTOP-P9H3C6A",
+        "logon_type": 3,
+        "failure_reason": "0xC000006A",
+        "source_port": 49833,
+        "timestamp": "2026-02-22T14:23:50.9876543",
+        "event_id": 4625,
+        "source_vm_id": "vm-001"
+      },
+      {
+        "id": 3,
+        "ip_address": "10.0.0.50",
+        "username": "test1",
+        "hostname": "SERVER-DC01",
+        "logon_type": 10,
+        "failure_reason": "0xC000006D",
+        "source_port": 50100,
+        "timestamp": "2026-02-22T14:25:00.0000000",
+        "event_id": 4625,
+        "source_vm_id": "vm-002"
+      },
+      {
+        "id": 4,
+        "ip_address": "172.16.1.100",
+        "username": "sa",
+        "hostname": "SERVER-DC01",
+        "logon_type": 3,
+        "failure_reason": "0xC0000064",
+        "source_port": 51200,
+        "timestamp": "2026-02-22T14:26:30.0000000",
+        "event_id": 4625,
+        "source_vm_id": "vm-002"
+      },
+      {
+        "id": 5,
+        "ip_address": "192.168.1.200",
+        "username": "user1",
+        "hostname": "DESKTOP-P9H3C6A",
+        "logon_type": 3,
+        "failure_reason": "0xC000006A",
+        "source_port": 52300,
+        "timestamp": "2026-02-22T14:28:15.0000000",
+        "event_id": 4625,
+        "source_vm_id": "vm-001"
+      },
+      {
+        "id": 6,
+        "ip_address": "203.0.113.42",
+        "username": "root",
+        "hostname": "DESKTOP-P9H3C6A",
+        "logon_type": 10,
+        "failure_reason": "0xC0000064",
+        "source_port": 53400,
+        "timestamp": "2026-02-22T14:30:00.0000000",
+        "event_id": 4625,
+        "source_vm_id": "vm-001"
+      },
+      {
+        "id": 7,
+        "ip_address": "192.168.56.102",
+        "username": "stresstest1",
+        "hostname": "DESKTOP-P9H3C6A",
+        "logon_type": 3,
+        "failure_reason": "0xC000006D",
+        "source_port": 54500,
+        "timestamp": "2026-02-22T14:32:00.0000000",
+        "event_id": 4625,
+        "source_vm_id": "vm-001"
+      },
+      {
+        "id": 8,
+        "ip_address": "10.0.0.50",
+        "username": "backup_admin",
+        "hostname": "SERVER-DC01",
+        "logon_type": 3,
+        "failure_reason": "0xC000006A",
+        "source_port": 55600,
+        "timestamp": "2026-02-22T14:34:00.0000000",
+        "event_id": 4625,
+        "source_vm_id": "vm-002"
+      },
+      {
+        "id": 9,
+        "ip_address": "192.168.56.102",
+        "username": "guest",
+        "hostname": "DESKTOP-P9H3C6A",
+        "logon_type": 3,
+        "failure_reason": "0xC0000072",
+        "source_port": 56700,
+        "timestamp": "2026-02-22T14:36:00.0000000",
+        "event_id": 4625,
+        "source_vm_id": "vm-001"
+      },
+      {
+        "id": 10,
+        "ip_address": "172.16.1.100",
+        "username": "Administrator",
+        "hostname": "WEB-SERVER",
+        "logon_type": 10,
+        "failure_reason": "0xC000006D",
+        "source_port": 57800,
+        "timestamp": "2026-02-22T14:38:00.0000000",
+        "event_id": 4625,
+        "source_vm_id": "vm-003"
+      }
+    ]
+  },
+
+  "_failure_reason_codes": {
+    "_description": "Windows NTSTATUS codes seen in failure_reason field. Useful for displaying human-readable labels.",
+    "0xC000006D": "STATUS_LOGON_FAILURE (bad username or password)",
+    "0xC000006A": "STATUS_WRONG_PASSWORD (correct username, wrong password)",
+    "0xC0000064": "STATUS_NO_SUCH_USER (username does not exist)",
+    "0xC0000072": "STATUS_ACCOUNT_DISABLED (account is disabled)",
+    "0xC000006F": "STATUS_INVALID_LOGON_HOURS (outside allowed hours)",
+    "0xC0000070": "STATUS_INVALID_WORKSTATION (not allowed from this machine)",
+    "0xC0000071": "STATUS_PASSWORD_EXPIRED (password has expired)",
+    "0xC0000234": "STATUS_ACCOUNT_LOCKED_OUT (account is locked)"
+  },
+
+  "_logon_type_codes": {
+    "_description": "Windows logon types seen in logon_type field.",
+    "2": "Interactive (local keyboard login)",
+    "3": "Network (SMB, net use, etc.)",
+    "7": "Unlock (workstation unlock)",
+    "10": "RemoteInteractive (RDP)",
+    "11": "CachedInteractive (cached domain credentials)"
+  }
+}
