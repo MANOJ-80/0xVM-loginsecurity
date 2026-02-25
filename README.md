@@ -57,10 +57,40 @@ A security monitoring solution that detects failed login attempts on Windows Vir
 - Geo-location mapping
 - Attack trends
 
+## Technology Stack
+
+### Backend
+- Python 3.9+ with FastAPI
+- MSSQL Server 2019+
+
+### Frontend
+- React 18+
+- Chart.js / Recharts
+- Leaflet / react-simple-maps
+
+### Infrastructure
+- Windows Server 2019+ / Windows 10/11
+- Windows Firewall or hardware firewall integration
+
+## Collection Mode
+
+### Agent-Based
+- Lightweight Python agent on each VM monitors Event ID 4625
+- Uses EvtSubscribe for real-time event detection with SHA-256 fingerprint deduplication
+- On startup, performs one-time scan to catch missed events
+- Converts UTC timestamps to local time before sending
+- Failed sends are queued and retried on next poll cycle
+- Server-side deduplication prevents duplicate inserts
+
+See [MULTI_VM_COLLECTION.md](MULTI_VM_COLLECTION.md) for detailed setup instructions.
+
 ## Configuration
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
+| DB_SERVER | localhost\SQLEXPRESS | MSSQL server address |
+| DB_NAME | SecurityMonitor | Database name |
+| API_PORT | 3000 | API server port |
 | THRESHOLD | 5 | Failed attempts before blocking |
 | TIME_WINDOW | 5 | Time window in minutes |
 | BLOCK_DURATION | 60 | Block duration in minutes |
@@ -74,12 +104,20 @@ A security monitoring solution that detects failed login attempts on Windows Vir
 # Install dependencies
 pip install -r requirements.txt
 
+# Configure environment
+cp .env.example .env
+# Edit .env with your database and API settings
+
 # Run backend
-uvicorn main:app --reload
+uvicorn main:app --reload --host 0.0.0.0 --port 3000
 
 # Run frontend
-npm run dashboard
+cd frontend
+npm install
+npm start
 ```
+
+Frontend runs on http://localhost:3001
 
 ## API Endpoints
 
@@ -106,8 +144,6 @@ npm run dashboard
 This system supports centralized monitoring from multiple Windows VMs using either:
 - **WEF (Windows Event Forwarding)**: Agentless collection from source VMs
 - **Agent-based**: Lightweight Python agent on each VM
-
-See `MULTI_VM_COLLECTION.md` for detailed setup instructions.
 
 ## License
 
