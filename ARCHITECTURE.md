@@ -72,6 +72,52 @@
   inserts when retried events were already processed by the backend.
 - Best for workgroup or mixed environments.
 
+## Deduplication Strategy
+
+The system uses **two layers of dedup** to guarantee no duplicate events
+are stored, even across agent restarts and network failures.
+
+### Layer 1: Agent-Side — `_seen.json`
+
+The agent maintains a file (`<vm_id>_seen.json`) containing SHA-256
+fingerprints of every event it has already sent.
+
+**How it works:**
+1. Agent reads event from Windows Event Log.
+2. Builds fingerprint: `SHA-256(utc_timestamp + ip + username + source_port)`.
+3. If fingerprint exists in `_seen.json` → skip (already sent).
+4. If new → send to backend, add fingerprint to `_seen.json`.
+
+**Startup scan:** On every restart, the agent scans the event log in
+**reverse direction** (newest first). It reads backwards until it hits
+events that are already in `_seen.json`, then stops (early exit). This
+means restart cost is proportional to **new events since last run**, not
+the total log size.
+
+**Size cap:** `_seen.json` is capped at 50,000 entries. When full, the
+oldest entries are dropped. This is safe because old events are also
+rotated out of the Windows Event Log (default 20MB max).
+
+**Future improvement:** Age-based pruning — remove entries older than N
+days to keep `_seen.json` aligned with the Windows Event Log retention
+window.
+
+### Layer 2: Database-Side — Stored Procedure
+
+`sp_RecordFailedLoginMultiVM` checks `IF EXISTS` before inserting,
+using the natural key: `(ip_address, username, source_port, timestamp,
+source_vm_id)`.
+
+This catches duplicates that slip past the agent — specifically when
+the agent's HTTP POST times out but the backend already processed the
+request. The agent queues the events for retry, and the retry sends
+them again. The stored procedure silently drops the duplicate.
+
+| Layer | Where | Prevents | Cost |
+|-------|-------|----------|------|
+| `_seen.json` | Agent | Re-sending old events on restart | Saves bandwidth and API load |
+| `IF EXISTS` | Database | Duplicate inserts from retry timeouts | One extra SELECT per insert |
+
 ## Data Flow
 
 1. Failed login occurs on a source VM (Event ID 4625).
