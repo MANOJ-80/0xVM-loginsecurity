@@ -216,6 +216,16 @@ class SecurityEventAgent:
                 data[name] = item.text
         time_created = root.find(".//e:TimeCreated", EVT_NS)
         raw_utc = time_created.get("SystemTime") if time_created is not None else None
+        # SubStatus has the specific failure reason (e.g. 0xC0000064 = no
+        # such user, 0xC000006A = wrong password).  Status is always the
+        # generic 0xC000006D ("logon failure") and is useless on its own.
+        # We send SubStatus as `status` so the backend stores the useful
+        # code in failure_reason.  Fall back to Status if SubStatus is
+        # missing or zero.
+        sub = data.get("SubStatus")
+        primary = data.get("Status")
+        reason = sub if (sub and sub != "0x0") else primary
+
         return {
             "timestamp": SecurityEventAgent._utc_to_local(raw_utc),
             "_raw_utc": raw_utc,  # kept for fingerprinting (dedup)
@@ -223,7 +233,7 @@ class SecurityEventAgent:
             "username": data.get("TargetUserName"),
             "domain": data.get("TargetDomainName"),
             "logon_type": data.get("LogonType"),
-            "status": data.get("Status"),
+            "status": reason,
             "workstation": data.get("WorkstationName"),
             "source_port": data.get("IpPort"),
         }
