@@ -195,7 +195,190 @@ HAVING COUNT(*) > 1;
 
 This should return **zero rows** if the server-side dedup is working correctly.
 
-## Part 7: Automating the Windows Firewall Blocks (Future/Optional)
+## Part 7: RDP Logon Type Verification (Test 8)
+
+This test confirms that failed RDP logins are captured with `logon_type = 10`
+(RemoteInteractive), which is distinct from SMB-based attacks (`logon_type = 3`).
+
+### Prerequisites
+
+- RDP must be enabled on the Source VM (`192.168.56.101`).
+  Open System Properties → Remote → "Allow remote connections to this computer".
+- Windows Firewall on the Source VM must allow RDP (port 3389).
+  It usually does by default when RDP is enabled.
+- Agent running on Source VM, backend running on Collector VM.
+
+### 1. Note the Current Row Count
+
+Before generating RDP events, record the last row ID in the database so you
+can easily query only the new rows:
+
+```sql
+SELECT MAX(id) AS last_id FROM FailedLoginAttempts;
+```
+
+Save this value (e.g., `42`).
+
+### 2. Generate an RDP Failed Login
+
+From the **Collector VM** (192.168.56.102):
+
+1. Open Remote Desktop Connection: `mstsc.exe`
+2. Connect to `192.168.56.101`
+3. Enter a **nonexistent** username: `rdptest_baduser`
+4. Enter any password: `wrongpassword`
+5. Click OK / press Enter — it will fail.
+
+Repeat once more with a **real username but wrong password**:
+
+1. Connect to `192.168.56.101` again
+2. Enter the actual local admin username (e.g., `Administrator`)
+3. Enter a wrong password: `wrongpassword`
+4. Click OK / press Enter — it will fail.
+
+### 3. Watch the Agent Console
+
+You should see within 10 seconds:
+
+```
+[INFO] Failed login: user=rdptest_baduser  ip=192.168.56.102
+[INFO] Failed login: user=Administrator    ip=192.168.56.102
+[INFO] Sent 2 event(s) to collector
+```
+
+### 4. Verify in the Database
+
+On the Collector VM, open SSMS and run:
+
+```sql
+SELECT id, ip_address, username, logon_type, failure_reason, source_port, timestamp
+FROM FailedLoginAttempts
+WHERE id > 42  -- replace 42 with your saved last_id
+ORDER BY id DESC;
+```
+
+**Expected results:**
+
+| username          | logon_type | failure_reason |
+|-------------------|-----------|----------------|
+| rdptest_baduser   | **10**    | 0xC0000064     |
+| Administrator     | **10**    | 0xC000006A     |
+
+**PASS criteria:**
+- Both rows have `logon_type = 10` (RemoteInteractive = RDP)
+- This is different from SMB attacks which show `logon_type = 3`
+
+### 5. Cross-check with Event Viewer
+
+On the Source VM, open Event Viewer → Windows Logs → Security.
+Filter for Event ID 4625. Find the matching events and verify:
+
+- **Logon Type** field shows `10`
+- **Source Network Address** shows `192.168.56.102`
+- The values match what the database recorded
+
+---
+
+## Part 8: Failure Reason Code Differentiation (Test 9)
+
+This test confirms that the agent correctly captures and differentiates
+Windows NTSTATUS failure reason codes. The two most important codes are:
+
+| NTSTATUS Code | Meaning |
+|---------------|---------|
+| `0xC0000064`  | No such user account exists |
+| `0xC000006A`  | Username exists but password is wrong |
+
+### 1. Note the Current Row Count
+
+```sql
+SELECT MAX(id) AS last_id FROM FailedLoginAttempts;
+```
+
+### 2. Generate "No Such User" Event (0xC0000064)
+
+From the Collector VM, use a username that **does not exist** on the Source VM:
+
+```cmd
+net use \\192.168.56.101\C$ /user:nosuchuser_test wrongpassword
+```
+
+### 3. Generate "Wrong Password" Event (0xC000006A)
+
+From the Collector VM, use a username that **does exist** on the Source VM
+but provide the wrong password:
+
+```cmd
+net use \\192.168.56.101\C$ /user:Administrator wrongpassword
+```
+
+(Replace `Administrator` with whatever local account actually exists on the
+Source VM.)
+
+### 4. Watch the Agent Console
+
+Within 10 seconds:
+
+```
+[INFO] Failed login: user=nosuchuser_test  ip=192.168.56.102
+[INFO] Failed login: user=Administrator    ip=192.168.56.102
+[INFO] Sent 2 event(s) to collector
+```
+
+### 5. Verify in the Database
+
+```sql
+SELECT id, ip_address, username, logon_type, failure_reason, source_port, timestamp
+FROM FailedLoginAttempts
+WHERE id > 42  -- replace with your saved last_id
+ORDER BY id DESC;
+```
+
+**Expected results:**
+
+| username           | logon_type | failure_reason |
+|--------------------|-----------|----------------|
+| nosuchuser_test    | 3         | **0xC0000064** |
+| Administrator      | 3         | **0xC000006A** |
+
+**PASS criteria:**
+- The two rows have **different** `failure_reason` values
+- `nosuchuser_test` → `0xC0000064` (account does not exist)
+- `Administrator` → `0xC000006A` (wrong password for valid account)
+- Both show `logon_type = 3` (Network / SMB)
+
+### 6. Additional Codes (Optional)
+
+If you want to test more failure codes:
+
+**Account locked out (0xC0000234):**
+1. First, set account lockout policy: `secpol.msc` → Account Policies → Account Lockout Policy → set threshold to 3 attempts.
+2. Fail 3+ times with the same valid username.
+3. The next attempt should produce `0xC0000234`.
+
+**Account disabled (0xC0000072):**
+1. Create a test user: `net user disabledtest Password123 /add`
+2. Disable it: `net user disabledtest /active:no`
+3. Try to log in from the Collector VM: `net use \\192.168.56.101\C$ /user:disabledtest wrongpassword`
+4. Should produce `0xC0000072`.
+
+### 7. Combined RDP + Failure Code Test
+
+For maximum coverage, combine Test 8 and Test 9 in one run:
+
+```
+Step 1: RDP with nonexistent user    → logon_type=10, failure_reason=0xC0000064
+Step 2: RDP with wrong password       → logon_type=10, failure_reason=0xC000006A
+Step 3: SMB with nonexistent user     → logon_type=3,  failure_reason=0xC0000064
+Step 4: SMB with wrong password       → logon_type=3,  failure_reason=0xC000006A
+```
+
+Verify all four rows in the database with distinct logon_type + failure_reason
+combinations. This proves the agent faithfully captures both dimensions.
+
+---
+
+## Part 9: Automating the Windows Firewall Blocks (Future/Optional)
 
 Once the above is working, the next logical step is to have a script that constantly polls the API using the `/suspicious-ips` endpoint and creates a Windows Firewall rule to block them via PowerShell `New-NetFirewallRule`.
 

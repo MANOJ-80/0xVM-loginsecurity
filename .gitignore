@@ -18,6 +18,8 @@ env/
 
 # Agent runtime files
 *_seen.json
+agent*.log
+agent*.log.*
 
 # IDE / Editor
 .vscode/

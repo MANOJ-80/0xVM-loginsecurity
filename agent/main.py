@@ -1,5 +1,6 @@
 import time
 import logging
+import logging.handlers
 import hashlib
 import socket
 import os
@@ -50,10 +51,48 @@ def close_evt_handle(handle):
             pass
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
+LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
+
+
+def _setup_logging(log_file="agent.log", max_bytes=5 * 1024 * 1024, backup_count=3):
+    """
+    Configure logging with both console and rotating file output.
+
+    Defaults: 5 MB per file, 3 backups → max ~20 MB disk usage.
+    The file handler rotates automatically when the current log
+    exceeds max_bytes; old files are named agent.log.1, .2, .3.
+
+    Safe to call multiple times — clears existing handlers first.
+    """
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.handlers.clear()
+
+    fmt = logging.Formatter(LOG_FORMAT)
+
+    # Console handler (always present so the user can watch live)
+    console = logging.StreamHandler()
+    console.setFormatter(fmt)
+    root.addHandler(console)
+
+    # Rotating file handler
+    try:
+        file_handler = logging.handlers.RotatingFileHandler(
+            log_file,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(fmt)
+        root.addHandler(file_handler)
+    except Exception as e:
+        # If we can't open the log file (permissions, path issues),
+        # fall back to console-only and warn.
+        root.warning("Could not set up log file '%s': %s", log_file, e)
+
+
+# Basic console-only logging until _setup_logging() is called from __main__
+logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 logger = logging.getLogger(__name__)
 
 # XML namespace used in Windows event XML
@@ -562,6 +601,15 @@ if __name__ == "__main__":
     try:
         with open("config.yaml") as f:
             config = yaml.safe_load(f)
+
+        # Apply logging config (with sensible defaults if not specified)
+        log_cfg = config.get("logging", {})
+        _setup_logging(
+            log_file=log_cfg.get("file", "agent.log"),
+            max_bytes=log_cfg.get("max_bytes", 5 * 1024 * 1024),
+            backup_count=log_cfg.get("backup_count", 3),
+        )
+
         agent = SecurityEventAgent(config)
         agent.run()
     except KeyboardInterrupt:
