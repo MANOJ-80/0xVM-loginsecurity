@@ -54,6 +54,7 @@ CREATE TABLE FailedLoginAttempts (
 CREATE INDEX idx_ip_timestamp ON FailedLoginAttempts(ip_address, timestamp);
 CREATE INDEX idx_timestamp ON FailedLoginAttempts(timestamp);
 CREATE INDEX idx_source_vm ON FailedLoginAttempts(source_vm_id, timestamp);
+CREATE INDEX idx_dedup_check ON FailedLoginAttempts(ip_address, username, source_port, timestamp, source_vm_id);
 GO
 
 
@@ -323,7 +324,8 @@ CREATE TABLE FailedLoginAttempts (
 
     INDEX idx_ip_timestamp (ip_address, timestamp),
     INDEX idx_timestamp (timestamp),
-    INDEX idx_source_vm (source_vm_id, timestamp)  -- NEW: for per-VM queries
+    INDEX idx_source_vm (source_vm_id, timestamp),  -- NEW: for per-VM queries
+    INDEX idx_dedup_check (ip_address, username, source_port, timestamp, source_vm_id)  -- for SP dedup check
 );
 ```
 
