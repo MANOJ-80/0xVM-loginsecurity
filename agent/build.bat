@@ -1,5 +1,5 @@
 @echo off
-REM ─────────────────────────────────────────────────────────────
+REM -------------------------------------------------------------
 REM  Build agent binaries using PyInstaller
 REM
 REM  Run this from the agent\ directory WITH the venv activated:
@@ -15,7 +15,7 @@ REM
 REM  Deploy to each VM:
 REM      Copy both exes + config.yaml to C:\SecurityAgent\
 REM      Register SecurityMonitorService.exe with sc create
-REM ─────────────────────────────────────────────────────────────
+REM -------------------------------------------------------------
 
 setlocal
 
@@ -37,9 +37,9 @@ pyinstaller ^
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
-    echo ── Build FAILED at step 1 (SecurityMonitorAgent.exe) ─────
+    echo -- Build FAILED at step 1 (SecurityMonitorAgent.exe) --
     echo    Check the PyInstaller output above.
-    echo ──────────────────────────────────────────────────────────
+    echo ----------------------------------------------------------
     exit /b 1
 )
 
@@ -66,14 +66,14 @@ pyinstaller ^
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
-    echo ── Build FAILED at step 2 (SecurityMonitorService.exe) ───
+    echo -- Build FAILED at step 2 (SecurityMonitorService.exe) --
     echo    Check the PyInstaller output above.
-    echo ──────────────────────────────────────────────────────────
+    echo ----------------------------------------------------------
     exit /b 1
 )
 
 echo.
-echo ── Build successful ──────────────────────────────────────────
+echo -- Build successful --
 echo    Output:
 echo      dist\SecurityMonitorAgent.exe
 echo      dist\SecurityMonitorService.exe
@@ -82,6 +82,6 @@ echo    Deploy to each VM:
 echo      1. mkdir C:\SecurityAgent
 echo      2. Copy both exes + config.yaml there
 echo      3. Register SecurityMonitorService.exe with sc create
-echo ─────────────────────────────────────────────────────────────
+echo -------------------------------------------------------------
 
 endlocal
