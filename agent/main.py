@@ -446,12 +446,63 @@ class SecurityEventAgent:
         if success:
             self._retry_queue.clear()
 
+    def _register_with_collector(self):
+        """
+        Register this VM with the collector on startup so it appears in
+        GET /api/v1/vms.  Best-effort: logs a warning on failure but
+        never blocks the agent from running.
+        """
+        try:
+            # Derive base URL from collector_url (strip /api/v1/events)
+            base = self.collector_url
+            if base.endswith("/events"):
+                base = base[: -len("/events")]
+            elif base.endswith("/events/"):
+                base = base[: -len("/events/")]
+            register_url = f"{base}/vms"
+
+            # Get local IP — use the IP of the interface that routes to
+            # the collector.  Falls back to 0.0.0.0 if detection fails.
+            local_ip = "0.0.0.0"
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                local_ip = s.getsockname()[0]
+                s.close()
+            except Exception:
+                pass
+
+            payload = {
+                "vm_id": self.vm_id,
+                "hostname": self.hostname,
+                "ip_address": local_ip,
+                "collection_method": "agent",
+            }
+            resp = requests.post(register_url, json=payload, verify=False, timeout=10)
+            if resp.status_code == 200:
+                logger.info(
+                    "Registered with collector: vm_id=%s  ip=%s",
+                    self.vm_id,
+                    local_ip,
+                )
+            else:
+                logger.warning(
+                    "Registration returned HTTP %d: %s",
+                    resp.status_code,
+                    resp.text[:200],
+                )
+        except Exception as e:
+            logger.warning("Could not register with collector: %s", e)
+
     def run(self):
         logger.info("Agent started  vm_id=%s  hostname=%s", self.vm_id, self.hostname)
 
         if not win32evtlog or not win32event or not win32con:
             logger.error("Cannot run: win32evtlog/win32event/win32con not available")
             return
+
+        # --- Phase 0: Register with collector ---
+        self._register_with_collector()
 
         # --- Phase 1: Scan for events generated while agent was offline ---
         logger.info("Scanning existing events...")
