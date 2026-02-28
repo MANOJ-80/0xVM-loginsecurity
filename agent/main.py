@@ -155,7 +155,7 @@ class SecurityEventAgent:
 
     def stop(self):
         """Signal the agent to shut down gracefully."""
-        logger.info("Stop requested — shutting down...")
+        logger.info("Stop requested - shutting down...")
         self._stop_event.set()
         # Also wake the WaitForSingleObject call immediately so the
         # main loop doesn't block for up to poll_interval seconds.
@@ -617,7 +617,7 @@ class SecurityEventAgent:
                     if result == win32con.WAIT_OBJECT_0:
                         # Signal fired — new events available
                         logger.info(
-                            "Signal received — pulling events from subscription"
+                            "Signal received - pulling events from subscription"
                         )
                         # Reset the manual-reset event before pulling,
                         # so any events arriving during pull will re-signal.
