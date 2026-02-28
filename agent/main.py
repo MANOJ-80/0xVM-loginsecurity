@@ -706,3 +706,138 @@ if __name__ == "__main__":
 
     agent.run()
     print("Agent stopped.")
+
+
+def _run_console():
+    """Entry point for running the agent in console mode (dev / direct run)."""
+    import signal
+    import yaml
+
+    # Pin CWD to script directory
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(_script_dir)
+
+    with open("config.yaml") as f:
+        config = yaml.safe_load(f)
+
+    log_cfg = config.get("logging", {})
+    _setup_logging(
+        log_file=log_cfg.get("file", "agent.log"),
+        max_bytes=log_cfg.get("max_bytes", 5 * 1024 * 1024),
+        backup_count=log_cfg.get("backup_count", 3),
+    )
+
+    agent = SecurityEventAgent(config)
+
+    def _shutdown(signum, frame):
+        agent.stop()
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+    if hasattr(signal, "SIGBREAK"):
+        signal.signal(signal.SIGBREAK, _shutdown)
+
+    agent.run()
+    print("Agent stopped.")
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Windows Service implementation (for sc create / sc start)
+# When sc starts an exe, it passes -Embedding as argv[1].
+# ─────────────────────────────────────────────────────────────────────
+def _run_as_service():
+    """Entry point when running as a Windows Service via sc create."""
+    try:
+        import win32serviceutil
+        import win32service
+        import servicemanager
+    except ImportError:
+        print("Error: win32service modules not available.")
+        return
+
+    # Pin CWD to the exe directory so config.yaml and logs are found
+    _exe_dir = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(_exe_dir)
+
+    class SecurityMonitorService(win32serviceutil.ServiceFramework):
+        _svc_name_ = "SecurityMonitorAgent"
+        _svc_display_name_ = "Security Monitor Agent"
+        _svc_description_ = (
+            "Monitors Windows Security Event Log for failed login attempts "
+            "(Event ID 4625) and sends them to the central collector."
+        )
+
+        def __init__(self, args):
+            win32serviceutil.ServiceFramework.__init__(self, args)
+            self._agent = None
+
+        def SvcStop(self):
+            self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
+            logging.info("Service stop requested by SCM")
+            if self._agent:
+                self._agent.stop()
+
+        def SvcDoRun(self):
+            self.ReportServiceStatus(win32service.SERVICE_RUNNING)
+            servicemanager.LogMsg(
+                servicemanager.EVENTLOG_INFORMATION_TYPE,
+                servicemanager.PYS_SERVICE_STARTED,
+                (self._svc_name_, ""),
+            )
+            try:
+                self._run_agent()
+            except Exception as exc:
+                logging.exception("Service crashed: %s", exc)
+                servicemanager.LogErrorMsg(f"SecurityMonitorAgent crashed: {exc}")
+            servicemanager.LogMsg(
+                servicemanager.EVENTLOG_INFORMATION_TYPE,
+                servicemanager.PYS_SERVICE_STOPPED,
+                (self._svc_name_, ""),
+            )
+
+        def _run_agent(self):
+            import yaml
+
+            config_path = os.path.join(_exe_dir, "config.yaml")
+            try:
+                with open(config_path) as f:
+                    config = yaml.safe_load(f)
+            except Exception as exc:
+                logging.error("Cannot load %s: %s", config_path, exc)
+                servicemanager.LogErrorMsg(
+                    f"SecurityMonitorAgent: Cannot load config.yaml: {exc}"
+                )
+                return
+
+            log_cfg = config.get("logging", {})
+            _setup_logging(
+                log_file=log_cfg.get("file", os.path.join(_exe_dir, "agent.log")),
+                max_bytes=log_cfg.get("max_bytes", 5 * 1024 * 1024),
+                backup_count=log_cfg.get("backup_count", 3),
+            )
+
+            logging.info("Service starting agent...")
+            self._agent = SecurityEventAgent(config)
+            self._agent.run()
+            logging.info("Service agent exited.")
+
+    if __name__ == "__main__":
+        import sys
+
+        if len(sys.argv) == 1:
+            servicemanager.Initialize()
+            servicemanager.PrepareToHostSingle(SecurityMonitorService)
+            servicemanager.StartServiceCtrlDispatcher()
+        else:
+            win32serviceutil.HandleCommandLine(SecurityMonitorService)
+
+
+# Entry point: check if sc start passed -Embedding (indicates service mode)
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "-Embedding":
+        _run_as_service()
+    else:
+        # Console mode (dev or direct run)
+        _run_console()
