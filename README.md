@@ -121,47 +121,65 @@ Frontend runs on http://localhost:3001
 
 ## Agent Deployment
 
-### Standalone (development / testing)
+### Build the exe (one-time, on dev machine)
+
+```bash
+cd agent
+pip install -r requirements.txt pyinstaller
+build.bat
+# Output: dist\SecurityMonitorAgent.exe
+```
+
+### Deploy to each VM
+
+No Python needed on the target VM — just copy two files:
+
+```
+mkdir C:\SecurityAgent
+copy dist\SecurityMonitorAgent.exe  C:\SecurityAgent\
+copy config.yaml                    C:\SecurityAgent\
+```
+
+Edit `C:\SecurityAgent\config.yaml` on each VM:
+```yaml
+vm_id: "vm-003"          # unique per VM
+collector_url: "http://192.168.56.102:3000/api/v1/events"
+poll_interval: 10
+event_id: 4625
+```
+
+### Run as a Windows Service
+
+**Option A — NSSM** (recommended):
+```
+nssm install SecurityMonitorAgent C:\SecurityAgent\SecurityMonitorAgent.exe
+nssm set SecurityMonitorAgent AppDirectory C:\SecurityAgent
+nssm set SecurityMonitorAgent Start SERVICE_AUTO_START
+nssm start SecurityMonitorAgent
+```
+
+**Option B — sc create**:
+```
+sc create SecurityMonitorAgent binPath= "C:\SecurityAgent\SecurityMonitorAgent.exe" start= auto
+sc start SecurityMonitorAgent
+```
+
+Manage:
+```
+sc stop SecurityMonitorAgent       # Stop
+sc start SecurityMonitorAgent      # Start
+sc delete SecurityMonitorAgent     # Uninstall
+```
+
+### Development mode
 
 ```bash
 cd agent
 pip install -r requirements.txt
-# Edit config.yaml with your vm_id and collector_url
-python main.py
-# Ctrl+C to stop
+python main.py                     # Ctrl+C to stop
 ```
 
-### Windows Service (production)
-
-Run as **Administrator** on the source VM:
-
-```bash
-cd agent
-pip install -r requirements.txt
-
-# Install and start the service
-python service.py install
-python service.py start
-
-# Verify it's running
-sc query SecurityMonitorAgent
-
-# Set to start automatically on boot
-sc config SecurityMonitorAgent start= auto
-```
-
-Manage with standard Windows tools:
-```bash
-net stop SecurityMonitorAgent      # Stop
-net start SecurityMonitorAgent     # Start
-python service.py remove           # Uninstall
-```
-
-The service reads `config.yaml` from the agent directory. Logs are
-written to `agent.log` (with rotation) in the same directory.
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for shutdown behavior and
-internals.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for shutdown flow and internals.
 
 ## API Endpoints
 

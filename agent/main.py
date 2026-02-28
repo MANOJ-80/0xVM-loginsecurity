@@ -677,6 +677,7 @@ class SecurityEventAgent:
 
 
 if __name__ == "__main__":
+    import signal
     import yaml
 
     with open("config.yaml") as f:
@@ -691,8 +692,17 @@ if __name__ == "__main__":
     )
 
     agent = SecurityEventAgent(config)
-    try:
-        agent.run()
-    except KeyboardInterrupt:
+
+    # Handle termination signals so NSSM / sc stop / Ctrl+C all
+    # trigger a clean shutdown through agent.stop().
+    def _shutdown(signum, frame):
         agent.stop()
-        print("Agent stopped manually.")
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+    # SIGBREAK is sent by NSSM and Windows Ctrl+Break
+    if hasattr(signal, "SIGBREAK"):
+        signal.signal(signal.SIGBREAK, _shutdown)
+
+    agent.run()
+    print("Agent stopped.")

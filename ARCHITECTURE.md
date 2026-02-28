@@ -157,55 +157,71 @@ them again. The stored procedure silently drops the duplicate.
 
 ## Windows Service Deployment
 
-The agent can run as a Windows Service for production use, ensuring it
-starts automatically on boot and survives user logoff.
+The agent is built as a standalone `.exe` using PyInstaller, then
+registered as a Windows Service on each VM. **No Python installation
+is needed on the target VMs.**
 
-### How it works
+### Build (one-time, on dev machine)
 
-`agent/service.py` wraps `SecurityEventAgent` using `win32serviceutil`.
+```
+cd agent
+venv\Scripts\activate
+pip install pyinstaller
+build.bat
+```
 
-- **Service name:** `SecurityMonitorAgent`
-- **Display name:** `Security Monitor Agent`
-- **Account:** Local System (default). Can be changed via `services.msc`.
+Output: `dist\SecurityMonitorAgent.exe` (~15-25 MB single file)
 
-**Startup flow:**
-1. SCM starts the service → `SvcDoRun()` is called.
-2. `SvcDoRun` loads `config.yaml`, sets up log rotation, creates the
-   agent, and calls `agent.run()` (blocks until shutdown).
-3. `agent.run()` registers with collector, scans for missed events,
-   then enters the EvtSubscribe real-time loop.
+### Deploy to each VM
 
-**Shutdown flow:**
-1. SCM sends stop signal → `SvcStop()` is called.
-2. `SvcStop` calls `agent.stop()`, which:
+```
+mkdir C:\SecurityAgent
+:: Copy the exe and a config.yaml customized for this VM
+copy dist\SecurityMonitorAgent.exe C:\SecurityAgent\
+copy config.yaml C:\SecurityAgent\        :: edit vm_id, collector_url
+```
+
+### Register as a Windows Service
+
+Using NSSM (recommended — clean start/stop/restart):
+```
+nssm install SecurityMonitorAgent C:\SecurityAgent\SecurityMonitorAgent.exe
+nssm set SecurityMonitorAgent AppDirectory C:\SecurityAgent
+nssm set SecurityMonitorAgent DisplayName "Security Monitor Agent"
+nssm set SecurityMonitorAgent Start SERVICE_AUTO_START
+nssm start SecurityMonitorAgent
+```
+
+Or using `sc create` (no extra tools):
+```
+sc create SecurityMonitorAgent binPath= "C:\SecurityAgent\SecurityMonitorAgent.exe" start= auto
+sc start SecurityMonitorAgent
+```
+
+### Shutdown flow
+
+1. `sc stop` / NSSM sends `CTRL_C_EVENT` or `CTRL_BREAK_EVENT`.
+2. Signal handler in `main.py` calls `agent.stop()`, which:
    - Sets `threading.Event` (`_stop_event`) — checked by the main loop.
    - Signals the win32 event (`_signal_event`) — wakes
-     `WaitForSingleObject` immediately so the loop exits without
-     waiting for the next poll timeout.
+     `WaitForSingleObject` immediately (no 10-second wait).
 3. Main loop breaks, `finally` block cleans up subscription handles.
-4. `SvcDoRun` returns, SCM marks the service as stopped.
-
-Shutdown is near-instant (no 10-second wait).
-
-### Install / manage
-
-```
-# Run as Administrator
-python service.py install
-python service.py start
-python service.py stop
-python service.py remove
-
-# Or use Windows tools
-net start SecurityMonitorAgent
-net stop SecurityMonitorAgent
-sc config SecurityMonitorAgent start= auto
-```
+4. Process exits cleanly.
 
 ### Standalone mode
 
-Running `python main.py` directly still works. Ctrl+C triggers a clean
-shutdown via the same `stop()` path.
+Running `SecurityMonitorAgent.exe` directly (or `python main.py` in
+dev) still works. Ctrl+C triggers the same clean shutdown path.
+
+### Per-VM config
+
+Each VM gets its own `config.yaml` next to the exe:
+```yaml
+vm_id: "vm-003"                   # unique per VM
+collector_url: "http://192.168.56.102:3000/api/v1/events"
+poll_interval: 10
+event_id: 4625
+```
 
 ## Technology Stack
 
