@@ -276,8 +276,31 @@ class SecurityEventAgent:
             "source_port": data.get("IpPort"),
         }
 
-    # IPs that should be ignored (localhost / loopback noise)
+    # IPs that should be ignored (localhost / loopback noise).
+    # NOTE: Local GUI failed logons often use IpAddress "-" with
+    # interactive logon types (2/7). Those are allowed separately.
     _IGNORED_IPS = frozenset({"-", "::1", "127.0.0.1", "0.0.0.0"})
+    _ALLOW_DASH_IP_LOGON_TYPES = frozenset({"2", "7"})
+
+    @classmethod
+    def _should_include_event(cls, parsed):
+        """
+        Decide whether an event should be kept after XML parsing.
+
+        Keep remote events with a real source IP.
+        Also keep local interactive GUI failures where Windows reports
+        IpAddress as "-" (common for local console/unlock attempts).
+        """
+        ip = (parsed.get("ip_address") or "-").strip()
+        if ip not in cls._IGNORED_IPS:
+            return True
+
+        if ip == "-":
+            logon_type = str(parsed.get("logon_type") or "").strip()
+            if logon_type in cls._ALLOW_DASH_IP_LOGON_TYPES:
+                return True
+
+        return False
 
     def _create_subscription(self):
         """
@@ -344,8 +367,7 @@ class SecurityEventAgent:
                 try:
                     xml_string = win32evtlog.EvtRender(h, win32evtlog.EvtRenderEventXml)
                     parsed = self.parse_event_xml(xml_string)
-                    ip = parsed.get("ip_address") or "-"
-                    if ip not in self._IGNORED_IPS:
+                    if self._should_include_event(parsed):
                         all_events.append(parsed)
                 except Exception as exc:
                     logger.warning("Failed to parse event XML: %s", exc)
@@ -409,8 +431,7 @@ class SecurityEventAgent:
                             h, win32evtlog.EvtRenderEventXml
                         )
                         parsed = self.parse_event_xml(xml_string)
-                        ip = parsed.get("ip_address") or "-"
-                        if ip not in self._IGNORED_IPS:
+                        if self._should_include_event(parsed):
                             all_events.append(parsed)
                     except Exception as exc:
                         logger.warning("Failed to parse event XML: %s", exc)
