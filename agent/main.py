@@ -1,4 +1,5 @@
 import time
+import threading
 import logging
 import logging.handlers
 import hashlib
@@ -126,6 +127,21 @@ class SecurityEventAgent:
         # Subscription handles (set in run())
         self._signal_event = None
         self._subscription_handle = None
+
+        # Graceful shutdown flag — set by stop() or Windows Service manager
+        self._stop_event = threading.Event()
+
+    def stop(self):
+        """Signal the agent to shut down gracefully."""
+        logger.info("Stop requested — shutting down...")
+        self._stop_event.set()
+        # Also wake the WaitForSingleObject call immediately so the
+        # main loop doesn't block for up to poll_interval seconds.
+        if self._signal_event and win32event:
+            try:
+                win32event.SetEvent(self._signal_event)
+            except Exception:
+                pass
 
     # Maximum number of fingerprints to keep in the seen set.
     # Prevents unbounded memory growth on long-running agents.
@@ -556,11 +572,14 @@ class SecurityEventAgent:
         wait_timeout_ms = self.poll_interval * 1000
 
         try:
-            while True:
+            while not self._stop_event.is_set():
                 try:
                     result = win32event.WaitForSingleObject(
                         self._signal_event, wait_timeout_ms
                     )
+
+                    if self._stop_event.is_set():
+                        break
 
                     if result == win32con.WAIT_OBJECT_0:
                         # Signal fired — new events available
@@ -612,13 +631,14 @@ class SecurityEventAgent:
                             "WaitForSingleObject returned unexpected: %d",
                             result,
                         )
-                        time.sleep(self.poll_interval)
+                        self._stop_event.wait(self.poll_interval)
 
                 except Exception as exc:
                     logger.exception("Error in subscription loop: %s", exc)
-                    time.sleep(self.poll_interval)
+                    self._stop_event.wait(self.poll_interval)
         finally:
             self._cleanup_subscription()
+            logger.info("Agent stopped cleanly.")
 
     def _cleanup_subscription(self):
         """Release subscription and signal event handles."""
@@ -638,7 +658,7 @@ class SecurityEventAgent:
         Uses the same EvtQuery approach from previous versions.
         """
         logger.info("Polling every %d second(s)...", self.poll_interval)
-        while True:
+        while not self._stop_event.is_set():
             try:
                 events = self._scan_existing_events()
                 if events:
@@ -653,25 +673,26 @@ class SecurityEventAgent:
                     self._flush_retry_queue()
             except Exception as exc:
                 logger.exception("Unexpected error: %s", exc)
-            time.sleep(self.poll_interval)
+            self._stop_event.wait(self.poll_interval)
 
 
 if __name__ == "__main__":
     import yaml
 
+    with open("config.yaml") as f:
+        config = yaml.safe_load(f)
+
+    # Apply logging config (with sensible defaults if not specified)
+    log_cfg = config.get("logging", {})
+    _setup_logging(
+        log_file=log_cfg.get("file", "agent.log"),
+        max_bytes=log_cfg.get("max_bytes", 5 * 1024 * 1024),
+        backup_count=log_cfg.get("backup_count", 3),
+    )
+
+    agent = SecurityEventAgent(config)
     try:
-        with open("config.yaml") as f:
-            config = yaml.safe_load(f)
-
-        # Apply logging config (with sensible defaults if not specified)
-        log_cfg = config.get("logging", {})
-        _setup_logging(
-            log_file=log_cfg.get("file", "agent.log"),
-            max_bytes=log_cfg.get("max_bytes", 5 * 1024 * 1024),
-            backup_count=log_cfg.get("backup_count", 3),
-        )
-
-        agent = SecurityEventAgent(config)
         agent.run()
     except KeyboardInterrupt:
+        agent.stop()
         print("Agent stopped manually.")

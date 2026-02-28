@@ -119,6 +119,50 @@ npm start
 
 Frontend runs on http://localhost:3001
 
+## Agent Deployment
+
+### Standalone (development / testing)
+
+```bash
+cd agent
+pip install -r requirements.txt
+# Edit config.yaml with your vm_id and collector_url
+python main.py
+# Ctrl+C to stop
+```
+
+### Windows Service (production)
+
+Run as **Administrator** on the source VM:
+
+```bash
+cd agent
+pip install -r requirements.txt
+
+# Install and start the service
+python service.py install
+python service.py start
+
+# Verify it's running
+sc query SecurityMonitorAgent
+
+# Set to start automatically on boot
+sc config SecurityMonitorAgent start= auto
+```
+
+Manage with standard Windows tools:
+```bash
+net stop SecurityMonitorAgent      # Stop
+net start SecurityMonitorAgent     # Start
+python service.py remove           # Uninstall
+```
+
+The service reads `config.yaml` from the agent directory. Logs are
+written to `agent.log` (with rotation) in the same directory.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for shutdown behavior and
+internals.
+
 ## API Endpoints
 
 | Method | Endpoint | Description |

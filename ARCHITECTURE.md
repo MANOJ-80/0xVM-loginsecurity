@@ -155,6 +155,58 @@ them again. The stored procedure silently drops the duplicate.
 - Trusted VM IPs are allowed to reach ingestion endpoint.
 - Admin endpoints are reachable only from trusted admin network.
 
+## Windows Service Deployment
+
+The agent can run as a Windows Service for production use, ensuring it
+starts automatically on boot and survives user logoff.
+
+### How it works
+
+`agent/service.py` wraps `SecurityEventAgent` using `win32serviceutil`.
+
+- **Service name:** `SecurityMonitorAgent`
+- **Display name:** `Security Monitor Agent`
+- **Account:** Local System (default). Can be changed via `services.msc`.
+
+**Startup flow:**
+1. SCM starts the service → `SvcDoRun()` is called.
+2. `SvcDoRun` loads `config.yaml`, sets up log rotation, creates the
+   agent, and calls `agent.run()` (blocks until shutdown).
+3. `agent.run()` registers with collector, scans for missed events,
+   then enters the EvtSubscribe real-time loop.
+
+**Shutdown flow:**
+1. SCM sends stop signal → `SvcStop()` is called.
+2. `SvcStop` calls `agent.stop()`, which:
+   - Sets `threading.Event` (`_stop_event`) — checked by the main loop.
+   - Signals the win32 event (`_signal_event`) — wakes
+     `WaitForSingleObject` immediately so the loop exits without
+     waiting for the next poll timeout.
+3. Main loop breaks, `finally` block cleans up subscription handles.
+4. `SvcDoRun` returns, SCM marks the service as stopped.
+
+Shutdown is near-instant (no 10-second wait).
+
+### Install / manage
+
+```
+# Run as Administrator
+python service.py install
+python service.py start
+python service.py stop
+python service.py remove
+
+# Or use Windows tools
+net start SecurityMonitorAgent
+net stop SecurityMonitorAgent
+sc config SecurityMonitorAgent start= auto
+```
+
+### Standalone mode
+
+Running `python main.py` directly still works. Ctrl+C triggers a clean
+shutdown via the same `stop()` path.
+
 ## Technology Stack
 
 ### Backend
