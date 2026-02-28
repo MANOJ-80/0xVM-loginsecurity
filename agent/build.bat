@@ -37,7 +37,7 @@ pyinstaller ^
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
-    echo -- Build FAILED at step 1 (SecurityMonitorAgent.exe) --
+    echo -- Build FAILED at step 1: SecurityMonitorAgent.exe --
     echo    Check the PyInstaller output above.
     echo ----------------------------------------------------------
     exit /b 1
@@ -66,7 +66,7 @@ pyinstaller ^
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
-    echo -- Build FAILED at step 2 (SecurityMonitorService.exe) --
+    echo -- Build FAILED at step 2: SecurityMonitorService.exe --
     echo    Check the PyInstaller output above.
     echo ----------------------------------------------------------
     exit /b 1
