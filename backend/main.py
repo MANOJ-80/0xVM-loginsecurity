@@ -129,6 +129,8 @@ def get_suspicious_ips(threshold: int = 5):
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("{CALL sp_GetSuspiciousIPs(?)}", (threshold,))
+        if cursor.description is None:
+            return {"success": True, "data": [], "count": 0}
         columns = [column[0] for column in cursor.description]
         results = [dict(zip(columns, row)) for row in cursor.fetchall()]
         return {"success": True, "data": results, "count": len(results)}
@@ -148,6 +150,8 @@ def get_blocked_ips():
         cursor.execute(
             "SELECT ip_address, blocked_at, block_expires, reason, blocked_by FROM BlockedIPs WHERE is_active=1"
         )
+        if cursor.description is None:
+            return {"success": True, "data": [], "count": 0}
         columns = [column[0] for column in cursor.description]
         results = [dict(zip(columns, row)) for row in cursor.fetchall()]
         return {"success": True, "data": results, "count": len(results)}
@@ -252,6 +256,8 @@ def list_vms():
         cursor.execute(
             "SELECT vm_id, hostname, ip_address, collection_method, status, last_seen FROM VMSources"
         )
+        if cursor.description is None:
+            return {"success": True, "data": [], "count": 0}
         columns = [column[0] for column in cursor.description]
         results = [dict(zip(columns, row)) for row in cursor.fetchall()]
         return {"success": True, "data": results, "count": len(results)}
@@ -332,23 +338,161 @@ async def feed(request: Request):
     return EventSourceResponse(event_generator())
 
 
-# Placeholder endpoints for Statistics
 @app.get("/api/v1/statistics")
 def get_statistics():
-    return {
-        "success": True,
-        "data": {"total_failed_attempts": 0, "unique_attackers": 0, "blocked_ips": 0},
-    }
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Core counts
+        cursor.execute("SELECT COUNT(*) FROM FailedLoginAttempts")
+        total_failed = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(DISTINCT ip_address) FROM FailedLoginAttempts")
+        unique_attackers = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM BlockedIPs WHERE is_active = 1")
+        blocked_ips = cursor.fetchone()[0]
+
+        # Time-window counts
+        cursor.execute(
+            "SELECT COUNT(*) FROM FailedLoginAttempts WHERE timestamp >= DATEADD(HOUR, -24, GETDATE())"
+        )
+        attacks_last_24h = cursor.fetchone()[0]
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM FailedLoginAttempts WHERE timestamp >= DATEADD(HOUR, -1, GETDATE())"
+        )
+        attacks_last_hour = cursor.fetchone()[0]
+
+        # Top attacked usernames (top 10)
+        cursor.execute(
+            "SELECT TOP 10 username, COUNT(*) AS count FROM FailedLoginAttempts "
+            "WHERE username IS NOT NULL GROUP BY username ORDER BY count DESC"
+        )
+        top_usernames = [
+            {"username": row[0], "count": row[1]} for row in cursor.fetchall()
+        ]
+
+        # Attacks by hour (last 24 hours)
+        cursor.execute(
+            "SELECT DATEPART(HOUR, timestamp) AS hr, COUNT(*) AS count "
+            "FROM FailedLoginAttempts "
+            "WHERE timestamp >= DATEADD(HOUR, -24, GETDATE()) "
+            "GROUP BY DATEPART(HOUR, timestamp) ORDER BY hr"
+        )
+        attacks_by_hour = [
+            {"hour": f"{row[0]:02d}:00", "count": row[1]} for row in cursor.fetchall()
+        ]
+
+        return {
+            "success": True,
+            "data": {
+                "total_failed_attempts": total_failed,
+                "unique_attackers": unique_attackers,
+                "blocked_ips": blocked_ips,
+                "attacks_last_24h": attacks_last_24h,
+                "attacks_last_hour": attacks_last_hour,
+                "top_attacked_usernames": top_usernames,
+                "attacks_by_hour": attacks_by_hour,
+            },
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
 
 
 @app.get("/api/v1/statistics/global")
 def get_global_statistics():
-    return {
-        "success": True,
-        "data": {"total_failed_attempts": 0, "unique_attackers": 0, "blocked_ips": 0},
-    }
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Core counts
+        cursor.execute("SELECT COUNT(*) FROM FailedLoginAttempts")
+        total_failed = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(DISTINCT ip_address) FROM FailedLoginAttempts")
+        unique_attackers = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM BlockedIPs WHERE is_active = 1")
+        blocked_ips = cursor.fetchone()[0]
+
+        # VM counts
+        cursor.execute("SELECT COUNT(*) FROM VMSources WHERE status = 'active'")
+        active_vms = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM VMSources WHERE status = 'inactive'")
+        inactive_vms = cursor.fetchone()[0]
+
+        # Time-window counts
+        cursor.execute(
+            "SELECT COUNT(*) FROM FailedLoginAttempts WHERE timestamp >= DATEADD(HOUR, -24, GETDATE())"
+        )
+        attacks_last_24h = cursor.fetchone()[0]
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM FailedLoginAttempts WHERE timestamp >= DATEADD(HOUR, -1, GETDATE())"
+        )
+        attacks_last_hour = cursor.fetchone()[0]
+
+        # Attacks by VM
+        cursor.execute(
+            "SELECT source_vm_id, COUNT(*) AS count FROM FailedLoginAttempts "
+            "WHERE source_vm_id IS NOT NULL GROUP BY source_vm_id ORDER BY count DESC"
+        )
+        attacks_by_vm = [
+            {"vm_id": row[0], "count": row[1]} for row in cursor.fetchall()
+        ]
+
+        # Top attacked usernames (top 10)
+        cursor.execute(
+            "SELECT TOP 10 username, COUNT(*) AS count FROM FailedLoginAttempts "
+            "WHERE username IS NOT NULL GROUP BY username ORDER BY count DESC"
+        )
+        top_usernames = [
+            {"username": row[0], "count": row[1]} for row in cursor.fetchall()
+        ]
+
+        # Attacks by hour (last 24 hours)
+        cursor.execute(
+            "SELECT DATEPART(HOUR, timestamp) AS hr, COUNT(*) AS count "
+            "FROM FailedLoginAttempts "
+            "WHERE timestamp >= DATEADD(HOUR, -24, GETDATE()) "
+            "GROUP BY DATEPART(HOUR, timestamp) ORDER BY hr"
+        )
+        attacks_by_hour = [
+            {"hour": f"{row[0]:02d}:00", "count": row[1]} for row in cursor.fetchall()
+        ]
+
+        return {
+            "success": True,
+            "data": {
+                "total_failed_attempts": total_failed,
+                "unique_attackers": unique_attackers,
+                "blocked_ips": blocked_ips,
+                "active_vms": active_vms,
+                "inactive_vms": inactive_vms,
+                "attacks_last_24h": attacks_last_24h,
+                "attacks_last_hour": attacks_last_hour,
+                "attacks_by_vm": attacks_by_vm,
+                "top_attacked_usernames": top_usernames,
+                "attacks_by_hour": attacks_by_hour,
+            },
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
 
 
 @app.get("/api/v1/geo-attacks")
 def get_geo_attacks():
+    """Geo-location attack data. Requires a GeoIP database (not yet integrated).
+    Returns empty data until a GeoIP provider is configured."""
     return {"success": True, "data": []}
