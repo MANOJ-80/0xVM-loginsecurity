@@ -13,12 +13,12 @@ A security monitoring solution that detects failed login attempts on Windows Vir
 │                                                                             │
 │  ┌──────────┐   ┌──────────┐   ┌──────────┐     ┌──────────────────────┐  │
 │  │ Windows  │   │ Windows  │   │ Windows  │     │   Event Collector    │  │
-│  │   VM #1  │   │   VM #2  │   │   VM #3  │────▶│  (WEF or Agent API)  │  │
+│  │   VM #1  │   │   VM #2  │   │   VM #3  │────▶│   (Agent API Only)   │  │
 │  │ Event    │   │ Event    │   │ Event    │     └──────────┬───────────┘  │
 │  │  4625    │   │  4625    │   │  4625    │                │             │
 │  └────┬─────┘   └────┬─────┘   └────┬─────┘                ▼             │
 │       │              │              │           ┌──────────────────────┐  │
-│       │ WEF/Agent    │ WEF/Agent    │ WEF/Agent │   Detection Engine   │  │
+│       │   Agent      │   Agent      │   Agent   │   Detection Engine   │  │
 │       └──────────────┴──────────────┴───────────┤   + REST API Server   │  │
 │                                                   └──────────┬───────────┘  │
 │                                                              │              │
@@ -199,16 +199,15 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for shutdown flow and internals.
 | POST | /api/v1/vms | Register a new VM |
 | DELETE | /api/v1/vms/:vm_id | Unregister a VM |
 | GET | /api/v1/vms/:vm_id/attacks | Get attacks per VM |
-| POST | /api/v1/events | Receive events (agent/WEF) |
+| POST | /api/v1/events | Receive events (agent only) |
 | POST | /api/v1/block/per-vm | Block IP on specific VM |
 | GET | /api/v1/statistics/global | Global stats across VMs |
 | GET | /api/v1/health | Health check |
 
 ## Multi-VM Support
 
-This system supports centralized monitoring from multiple Windows VMs using either:
-- **WEF (Windows Event Forwarding)**: Agentless collection from source VMs
-- **Agent-based**: Lightweight Python agent on each VM
+This system supports centralized monitoring from multiple Windows VMs using:
+- **Agent-based collection only**: Lightweight Python agent on each VM
 
 ## License
 

@@ -1,6 +1,6 @@
 # Full End-to-End Testing Guide for Windows VM Security Monitor
 
-This guide will walk you through testing the entire automated system from start to finish on your VirtualBox environment. It focuses completely on the **Python Agent Method** since the workgroup WEF strategy proved to be unusable.
+This guide will walk you through testing the entire automated system from start to finish on your VirtualBox environment. It uses the **Python Agent Method only** (production collection mode).
 
 ## Pre-requisites
 

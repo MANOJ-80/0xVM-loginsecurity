@@ -273,7 +273,7 @@ Returns attack statistics for a specific VM.
 
 **POST** `/events`
 
-Receive failed login events from agents or WEF collector.
+Receive failed login events from VM agents.
 
 **Request Body:**
 
