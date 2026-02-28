@@ -277,10 +277,9 @@ class SecurityEventAgent:
         }
 
     # IPs that should be ignored (localhost / loopback noise).
-    # NOTE: Local GUI failed logons often use IpAddress "-" with
-    # interactive logon types (2/7). Those are allowed separately.
-    _IGNORED_IPS = frozenset({"-", "::1", "127.0.0.1", "0.0.0.0"})
-    _ALLOW_DASH_IP_LOGON_TYPES = frozenset({"2", "7"})
+    # Keep "-" events to capture local GUI failures where Windows
+    # does not provide a source IP.
+    _IGNORED_IPS = frozenset({"::1", "127.0.0.1", "0.0.0.0"})
 
     @classmethod
     def _should_include_event(cls, parsed):
@@ -288,19 +287,10 @@ class SecurityEventAgent:
         Decide whether an event should be kept after XML parsing.
 
         Keep remote events with a real source IP.
-        Also keep local interactive GUI failures where Windows reports
-        IpAddress as "-" (common for local console/unlock attempts).
+        Keep "-" events (local GUI failures) by design.
         """
         ip = (parsed.get("ip_address") or "-").strip()
-        if ip not in cls._IGNORED_IPS:
-            return True
-
-        if ip == "-":
-            logon_type = str(parsed.get("logon_type") or "").strip()
-            if logon_type in cls._ALLOW_DASH_IP_LOGON_TYPES:
-                return True
-
-        return False
+        return ip not in cls._IGNORED_IPS
 
     def _create_subscription(self):
         """
