@@ -10,6 +10,19 @@ from database import get_db_connection
 app = FastAPI(title="Security Monitor API", version="1.0")
 
 
+def _safe_int(value: Optional[str]) -> Optional[int]:
+    """Best-effort parse for numeric event fields; returns None on bad input."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s or s == "-":
+        return None
+    try:
+        return int(s)
+    except (TypeError, ValueError):
+        return None
+
+
 # --- Models ---
 class EventModel(BaseModel):
     timestamp: str
@@ -94,13 +107,9 @@ async def receive_events(req: ReceiveEventsRequest):
                     ev.ip_address,
                     ev.username,
                     req.hostname,
-                    int(ev.logon_type)
-                    if ev.logon_type and ev.logon_type.strip()
-                    else None,
+                    _safe_int(ev.logon_type),
                     ev.status if ev.status else None,
-                    int(ev.source_port)
-                    if ev.source_port and ev.source_port.strip()
-                    else None,
+                    _safe_int(ev.source_port),
                     req.vm_id,
                     ev.timestamp if ev.timestamp else None,
                 ),
