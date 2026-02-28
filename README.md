@@ -127,16 +127,19 @@ Frontend runs on http://localhost:3001
 cd agent
 pip install -r requirements.txt pyinstaller
 build.bat
-# Output: dist\SecurityMonitorAgent.exe
+# Output:
+#   dist\SecurityMonitorAgent.exe   (console/dev)
+#   dist\SecurityMonitorService.exe (Windows Service)
 ```
 
 ### Deploy to each VM
 
-No Python needed on the target VM — just copy two files:
+No Python needed on the target VM — copy these files:
 
 ```
 mkdir C:\SecurityAgent
 copy dist\SecurityMonitorAgent.exe  C:\SecurityAgent\
+copy dist\SecurityMonitorService.exe C:\SecurityAgent\
 copy config.yaml                    C:\SecurityAgent\
 ```
 
@@ -150,18 +153,17 @@ event_id: 4625
 
 ### Run as a Windows Service
 
-**Option A — NSSM** (recommended):
+Use the dedicated service binary with `sc`:
 ```
-nssm install SecurityMonitorAgent C:\SecurityAgent\SecurityMonitorAgent.exe
-nssm set SecurityMonitorAgent AppDirectory C:\SecurityAgent
-nssm set SecurityMonitorAgent Start SERVICE_AUTO_START
-nssm start SecurityMonitorAgent
+sc create SecurityMonitorAgent binPath= "C:\SecurityAgent\SecurityMonitorService.exe" start= auto
+sc description SecurityMonitorAgent "Security Monitor Agent (Windows Event 4625 collector)"
+sc start SecurityMonitorAgent
 ```
 
-**Option B — sc create**:
+Optional hardening:
 ```
-sc create SecurityMonitorAgent binPath= "C:\SecurityAgent\SecurityMonitorAgent.exe" start= auto
-sc start SecurityMonitorAgent
+sc failure SecurityMonitorAgent reset= 86400 actions= restart/5000/restart/10000/restart/30000
+sc config SecurityMonitorAgent start= delayed-auto
 ```
 
 Manage:
@@ -177,6 +179,7 @@ sc delete SecurityMonitorAgent     # Uninstall
 cd agent
 pip install -r requirements.txt
 python main.py                     # Ctrl+C to stop
+# Or run dist\SecurityMonitorAgent.exe directly for console logs
 ```
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for shutdown flow and internals.
