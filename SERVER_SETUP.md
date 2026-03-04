@@ -18,13 +18,14 @@ The server receives failed login events from agents, stores them in SQL Server, 
 8. [Step 6: Run the Server](#step-6-run-the-server)
 9. [Step 7: Verify Everything Works](#step-7-verify-everything-works)
 10. [Step 8: Windows Firewall](#step-8-windows-firewall)
-11. [Configuration Reference](#configuration-reference)
-12. [Database Schema](#database-schema)
-13. [API Reference](#api-reference)
-14. [How the Server Works](#how-the-server-works)
-15. [Running as a Background Service (Production)](#running-as-a-background-service-production)
-16. [Troubleshooting](#troubleshooting)
-17. [File Reference](#file-reference)
+11. [Step 9: Frontend Dashboard Setup](#step-9-frontend-dashboard-setup)
+12. [Configuration Reference](#configuration-reference)
+13. [Database Schema](#database-schema)
+14. [API Reference](#api-reference)
+15. [How the Server Works](#how-the-server-works)
+16. [Running as a Background Service (Production)](#running-as-a-background-service-production)
+17. [Troubleshooting](#troubleshooting)
+18. [File Reference](#file-reference)
 
 ---
 
@@ -56,14 +57,14 @@ The server receives failed login events from agents, stores them in SQL Server, 
 
 ### Server VM Requirements
 
-| Requirement | Details |
-|---|---|
-| **OS** | Windows 10 / Windows Server 2016 or later |
-| **SQL Server** | SQL Server 2019 Express or later (free) |
-| **.NET SDK** | .NET 10.0 SDK (10.0.100+) |
-| **RAM** | 4 GB minimum recommended |
-| **Disk** | ~500 MB for SQL Server + .NET SDK + database |
-| **Network** | Inbound TCP port 3000 open for agent connections |
+| Requirement    | Details                                          |
+| -------------- | ------------------------------------------------ |
+| **OS**         | Windows 10 / Windows Server 2016 or later        |
+| **SQL Server** | SQL Server 2019 Express or later (free)          |
+| **.NET SDK**   | .NET 10.0 SDK (10.0.100+)                        |
+| **RAM**        | 4 GB minimum recommended                         |
+| **Disk**       | ~500 MB for SQL Server + .NET SDK + database     |
+| **Network**    | Inbound TCP port 3000 open for agent connections |
 
 ---
 
@@ -94,6 +95,7 @@ sqlcmd -S localhost\SQLEXPRESS -E -Q "SELECT @@VERSION"
 ```
 
 You should see the SQL Server version info. If `sqlcmd` is not found, it's at:
+
 ```
 C:\Program Files\Microsoft SQL Server\Client SDK\ODBC\...\Tools\Binn\sqlcmd.exe
 ```
@@ -160,6 +162,7 @@ dotnet build
 ```
 
 Expected output:
+
 ```
 Build succeeded.
     0 Warning(s)
@@ -184,13 +187,13 @@ The connection string is in `appsettings.json` (and `appsettings.Development.jso
 
 ### Connection String Parameters
 
-| Parameter | Value | Description |
-|---|---|---|
-| `Server` | `localhost\SQLEXPRESS` | SQL Server instance. Change if using a named instance or remote server. |
-| `Database` | `SecurityMonitor` | Database name. Must match what you created in Step 2. |
-| `Trusted_Connection` | `True` | Use Windows Authentication (no username/password needed). |
-| `TrustServerCertificate` | `True` | Skip certificate validation (required for local SQLEXPRESS). |
-| `Encrypt` | `True` | Enable encryption (required by modern SQL Server drivers). |
+| Parameter                | Value                  | Description                                                             |
+| ------------------------ | ---------------------- | ----------------------------------------------------------------------- |
+| `Server`                 | `localhost\SQLEXPRESS` | SQL Server instance. Change if using a named instance or remote server. |
+| `Database`               | `SecurityMonitor`      | Database name. Must match what you created in Step 2.                   |
+| `Trusted_Connection`     | `True`                 | Use Windows Authentication (no username/password needed).               |
+| `TrustServerCertificate` | `True`                 | Skip certificate validation (required for local SQLEXPRESS).            |
+| `Encrypt`                | `True`                 | Enable encryption (required by modern SQL Server drivers).              |
 
 ### If using SQL Server Authentication instead of Windows Auth
 
@@ -227,6 +230,7 @@ info: Microsoft.Hosting.Lifetime[0]
 ```
 
 If this is a **fresh database** (no existing tables), you'll instead see:
+
 ```
 info: Microsoft.EntityFrameworkCore.Migrations[20402]
       Applying migration '20260304133110_InitialCreate'.
@@ -237,6 +241,7 @@ info: Program[0]
 ### The server is now running on `http://0.0.0.0:3000`
 
 This means it accepts connections from:
+
 - `http://localhost:3000` (from the server itself)
 - `http://<SERVER_IP>:3000` (from agent VMs and frontend)
 
@@ -279,6 +284,7 @@ sqlcmd -S localhost\SQLEXPRESS -E -d SecurityMonitor -Q "SELECT TABLE_NAME FROM 
 ```
 
 Expected tables:
+
 ```
 __EFMigrationsHistory
 AttackStatistics
@@ -314,6 +320,132 @@ Get-NetFirewallRule -DisplayName "Security Monitor API"
 ```powershell
 Remove-NetFirewallRule -DisplayName "Security Monitor API"
 ```
+
+---
+
+## Step 9: Frontend Dashboard Setup
+
+The frontend is a **Vite + React** single-page application that provides a real-time security monitoring dashboard. It connects to the ASP.NET backend API.
+
+### Prerequisites
+
+| Requirement | Details                                          |
+| ----------- | ------------------------------------------------ |
+| **Node.js** | v18.0 or later (LTS recommended)                 |
+| **npm**     | v9.0+ (bundled with Node.js)                     |
+| **Backend** | ASP.NET backend running on port 3000 (Steps 1–8) |
+
+### Install Node.js
+
+Go to: https://nodejs.org/
+
+Download the **LTS** version and install with default options.
+
+Verify:
+
+```powershell
+node --version
+npm --version
+```
+
+### Install Frontend Dependencies
+
+```powershell
+cd 0xVM-loginsecurity\frontend
+npm install
+```
+
+### Configure Backend URL
+
+The backend API URL is configured via the `.env` file in the `frontend/` directory:
+
+```env
+VITE_API_BASE=http://localhost:3000/api/v1
+```
+
+**If the backend is on a different machine**, update this to point to the server IP:
+
+```env
+VITE_API_BASE=http://192.168.56.102:3000/api/v1
+```
+
+> **Note:** You must restart the dev server after changing `.env` values.
+
+### Run the Frontend (Development)
+
+```powershell
+cd frontend
+npm run dev
+```
+
+Expected output:
+
+```
+VITE v7.3.1  ready in 300 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+```
+
+Open **http://localhost:5173/** in your browser.
+
+### Run the Frontend (Production Build)
+
+```powershell
+cd frontend
+npm run build
+npm run preview
+```
+
+The production build outputs static files to `frontend/dist/`. These can be served by any web server (Nginx, IIS, etc.).
+
+### Frontend Pages
+
+| Route             | Page             | Description                                                        |
+| ----------------- | ---------------- | ------------------------------------------------------------------ |
+| `/`               | Dashboard        | Stat cards, hourly attack chart, username pie chart, live SSE feed |
+| `/suspicious-ips` | Suspicious IPs   | Filterable table with threshold control                            |
+| `/blocked-ips`    | Blocked IPs      | Block/unblock IPs with modal form                                  |
+| `/vms`            | Virtual Machines | Register/remove VMs, view per-VM attack stats                      |
+| `/live-feed`      | Live Feed        | Real-time SSE event stream with pause/resume                       |
+
+### Frontend File Structure
+
+```
+frontend/
+├── .env                                 # Backend API URL config
+├── index.html                           # HTML entry point
+├── package.json                         # Dependencies and scripts
+├── vite.config.js                       # Vite configuration
+└── src/
+    ├── main.jsx                         # React entry point
+    ├── App.jsx                          # Router and providers
+    ├── index.css                        # Global design system (Froze theme)
+    ├── services/
+    │   └── api.js                       # All API calls + SSE subscription
+    ├── context/
+    │   └── ToastContext.jsx             # Toast notification system
+    ├── components/
+    │   ├── Layout.jsx                   # Sidebar + content layout
+    │   └── Sidebar.jsx                  # Navigation + health indicator
+    └── pages/
+        ├── Dashboard.jsx                # Main dashboard with charts
+        ├── SuspiciousIps.jsx            # Suspicious IPs table
+        ├── BlockedIps.jsx               # Blocked IPs management
+        ├── VirtualMachines.jsx          # VM management
+        └── LiveFeed.jsx                 # Real-time SSE feed
+```
+
+### Frontend Tech Stack
+
+| Component  | Technology                               |
+| ---------- | ---------------------------------------- |
+| Build Tool | Vite 7                                   |
+| UI Library | React 19                                 |
+| Routing    | react-router-dom                         |
+| Charts     | Recharts                                 |
+| Icons      | Lucide React                             |
+| Styling    | Vanilla CSS (Froze Communications theme) |
 
 ---
 
@@ -388,33 +520,34 @@ All API responses use **snake_case** naming (e.g., `ip_address`, `blocked_at`) t
 
 7 application tables + 1 EF Core tracking table:
 
-| Table | Purpose |
-|---|---|
-| `FailedLoginAttempts` | Every failed login event received from agents |
-| `SuspiciousIPs` | IPs with failed attempts above threshold (lifetime counter) |
-| `BlockedIPs` | Manually or auto-blocked IP addresses |
-| `Settings` | System configuration (thresholds, auto-block toggle, etc.) |
-| `VMSources` | Registered agent VMs |
-| `PerVMThresholds` | Per-VM override thresholds |
-| `AttackStatistics` | Daily aggregated statistics |
-| `__EFMigrationsHistory` | EF Core migration tracking (internal) |
+| Table                   | Purpose                                                     |
+| ----------------------- | ----------------------------------------------------------- |
+| `FailedLoginAttempts`   | Every failed login event received from agents               |
+| `SuspiciousIPs`         | IPs with failed attempts above threshold (lifetime counter) |
+| `BlockedIPs`            | Manually or auto-blocked IP addresses                       |
+| `Settings`              | System configuration (thresholds, auto-block toggle, etc.)  |
+| `VMSources`             | Registered agent VMs                                        |
+| `PerVMThresholds`       | Per-VM override thresholds                                  |
+| `AttackStatistics`      | Daily aggregated statistics                                 |
+| `__EFMigrationsHistory` | EF Core migration tracking (internal)                       |
 
 ### Table: FailedLoginAttempts
 
-| Column | Type | Nullable | Default | Description |
-|---|---|---|---|---|
-| `Id` | int (PK, identity) | No | Auto-increment | Primary key |
-| `ip_address` | nvarchar(45) | No | — | Attacker's IP address |
-| `username` | nvarchar(256) | Yes | — | Targeted username |
-| `hostname` | nvarchar(256) | Yes | — | Source hostname |
-| `logon_type` | int | Yes | — | Windows logon type (3=network, 10=RDP) |
-| `failure_reason` | nvarchar(20) | Yes | — | SubStatus code (e.g., 0xC000006A) |
-| `source_port` | int | Yes | — | Source TCP port |
-| `timestamp` | datetime2 | No | — | When the event occurred (local time) |
-| `event_id` | int | No | 4625 | Windows Event ID |
-| `source_vm_id` | nvarchar(100) | Yes | — | Which VM reported this event |
+| Column           | Type               | Nullable | Default        | Description                            |
+| ---------------- | ------------------ | -------- | -------------- | -------------------------------------- |
+| `Id`             | int (PK, identity) | No       | Auto-increment | Primary key                            |
+| `ip_address`     | nvarchar(45)       | No       | —              | Attacker's IP address                  |
+| `username`       | nvarchar(256)      | Yes      | —              | Targeted username                      |
+| `hostname`       | nvarchar(256)      | Yes      | —              | Source hostname                        |
+| `logon_type`     | int                | Yes      | —              | Windows logon type (3=network, 10=RDP) |
+| `failure_reason` | nvarchar(20)       | Yes      | —              | SubStatus code (e.g., 0xC000006A)      |
+| `source_port`    | int                | Yes      | —              | Source TCP port                        |
+| `timestamp`      | datetime2          | No       | —              | When the event occurred (local time)   |
+| `event_id`       | int                | No       | 4625           | Windows Event ID                       |
+| `source_vm_id`   | nvarchar(100)      | Yes      | —              | Which VM reported this event           |
 
 **Indexes:**
+
 - `idx_ip_timestamp` — (ip_address, timestamp)
 - `idx_timestamp` — (timestamp)
 - `idx_source_vm` — (source_vm_id, timestamp)
@@ -422,112 +555,117 @@ All API responses use **snake_case** naming (e.g., `ip_address`, `blocked_at`) t
 
 ### Table: SuspiciousIPs
 
-| Column | Type | Nullable | Default | Description |
-|---|---|---|---|---|
-| `Id` | int (PK, identity) | No | Auto-increment | Primary key |
-| `ip_address` | nvarchar(45) | No | — | Suspicious IP (unique) |
-| `failed_attempts` | int | No | 1 | Lifetime count of failed attempts |
-| `first_attempt` | datetime2 | Yes | — | First seen |
-| `last_attempt` | datetime2 | Yes | — | Most recent attempt |
-| `target_usernames` | nvarchar(max) | Yes | — | JSON array (future use) |
-| `status` | nvarchar(20) | No | 'active' | active, blocked, or cleared |
-| `created_at` | datetime2 | No | GETDATE() | Row creation time |
-| `updated_at` | datetime2 | No | GETDATE() | Last update time |
+| Column             | Type               | Nullable | Default        | Description                       |
+| ------------------ | ------------------ | -------- | -------------- | --------------------------------- |
+| `Id`               | int (PK, identity) | No       | Auto-increment | Primary key                       |
+| `ip_address`       | nvarchar(45)       | No       | —              | Suspicious IP (unique)            |
+| `failed_attempts`  | int                | No       | 1              | Lifetime count of failed attempts |
+| `first_attempt`    | datetime2          | Yes      | —              | First seen                        |
+| `last_attempt`     | datetime2          | Yes      | —              | Most recent attempt               |
+| `target_usernames` | nvarchar(max)      | Yes      | —              | JSON array (future use)           |
+| `status`           | nvarchar(20)       | No       | 'active'       | active, blocked, or cleared       |
+| `created_at`       | datetime2          | No       | GETDATE()      | Row creation time                 |
+| `updated_at`       | datetime2          | No       | GETDATE()      | Last update time                  |
 
 **Indexes:**
+
 - `idx_suspicious_ip` — (ip_address) UNIQUE
 - `idx_suspicious_status` — (status)
 
 ### Table: BlockedIPs
 
-| Column | Type | Nullable | Default | Description |
-|---|---|---|---|---|
-| `Id` | int (PK, identity) | No | Auto-increment | Primary key |
-| `ip_address` | nvarchar(45) | No | — | Blocked IP |
-| `blocked_at` | datetime2 | No | GETDATE() | When blocked |
-| `block_expires` | datetime2 | Yes | — | When the block expires |
-| `reason` | nvarchar(500) | Yes | — | Reason for blocking |
-| `blocked_by` | nvarchar(50) | No | 'auto' | 'auto' or 'manual' |
-| `is_active` | bit | No | 1 (true) | Whether the block is currently active |
-| `unblocked_at` | datetime2 | Yes | — | When unblocked (if applicable) |
-| `unblocked_by` | nvarchar(50) | Yes | — | Who unblocked |
-| `scope` | nvarchar(20) | No | 'global' | 'global' or 'per-vm' |
-| `target_vm_id` | nvarchar(100) | Yes | — | Target VM (for per-vm blocks) |
+| Column          | Type               | Nullable | Default        | Description                           |
+| --------------- | ------------------ | -------- | -------------- | ------------------------------------- |
+| `Id`            | int (PK, identity) | No       | Auto-increment | Primary key                           |
+| `ip_address`    | nvarchar(45)       | No       | —              | Blocked IP                            |
+| `blocked_at`    | datetime2          | No       | GETDATE()      | When blocked                          |
+| `block_expires` | datetime2          | Yes      | —              | When the block expires                |
+| `reason`        | nvarchar(500)      | Yes      | —              | Reason for blocking                   |
+| `blocked_by`    | nvarchar(50)       | No       | 'auto'         | 'auto' or 'manual'                    |
+| `is_active`     | bit                | No       | 1 (true)       | Whether the block is currently active |
+| `unblocked_at`  | datetime2          | Yes      | —              | When unblocked (if applicable)        |
+| `unblocked_by`  | nvarchar(50)       | Yes      | —              | Who unblocked                         |
+| `scope`         | nvarchar(20)       | No       | 'global'       | 'global' or 'per-vm'                  |
+| `target_vm_id`  | nvarchar(100)      | Yes      | —              | Target VM (for per-vm blocks)         |
 
 **Indexes:**
+
 - `idx_blocked_active` — (is_active)
 - `idx_blocked_expires` — (block_expires)
 - `idx_blocked_scope` — (scope, is_active)
 
 ### Table: Settings
 
-| Column | Type | Nullable | Default | Description |
-|---|---|---|---|---|
-| `key_name` | nvarchar(100) (PK) | No | — | Setting name |
-| `value` | nvarchar(500) | Yes | — | Setting value |
-| `description` | nvarchar(500) | Yes | — | Human-readable description |
-| `updated_at` | datetime2 | No | GETDATE() | Last update time |
+| Column        | Type               | Nullable | Default   | Description                |
+| ------------- | ------------------ | -------- | --------- | -------------------------- |
+| `key_name`    | nvarchar(100) (PK) | No       | —         | Setting name               |
+| `value`       | nvarchar(500)      | Yes      | —         | Setting value              |
+| `description` | nvarchar(500)      | Yes      | —         | Human-readable description |
+| `updated_at`  | datetime2          | No       | GETDATE() | Last update time           |
 
 **Seed Data** (inserted by InitialCreate migration):
 
-| key_name | value | description |
-|---|---|---|
-| `THRESHOLD` | `5` | Failed attempts before marking as suspicious |
-| `TIME_WINDOW` | `5` | Time window in minutes for threshold |
-| `BLOCK_DURATION` | `60` | Auto-block duration in minutes |
-| `ENABLE_AUTO_BLOCK` | `true` | Enable automatic IP blocking |
-| `GLOBAL_THRESHOLD` | `5` | Global threshold across all VMs |
-| `ENABLE_GLOBAL_AUTO_BLOCK` | `true` | Enable global auto-blocking |
+| key_name                   | value  | description                                  |
+| -------------------------- | ------ | -------------------------------------------- |
+| `THRESHOLD`                | `5`    | Failed attempts before marking as suspicious |
+| `TIME_WINDOW`              | `5`    | Time window in minutes for threshold         |
+| `BLOCK_DURATION`           | `60`   | Auto-block duration in minutes               |
+| `ENABLE_AUTO_BLOCK`        | `true` | Enable automatic IP blocking                 |
+| `GLOBAL_THRESHOLD`         | `5`    | Global threshold across all VMs              |
+| `ENABLE_GLOBAL_AUTO_BLOCK` | `true` | Enable global auto-blocking                  |
 
 ### Table: VMSources
 
-| Column | Type | Nullable | Default | Description |
-|---|---|---|---|---|
-| `Id` | int (PK, identity) | No | Auto-increment | Primary key |
-| `vm_id` | nvarchar(100) | No | — | Unique VM identifier |
-| `hostname` | nvarchar(256) | Yes | — | VM hostname |
-| `ip_address` | nvarchar(45) | Yes | — | VM IP address |
-| `collection_method` | nvarchar(20) | Yes | — | 'agent' or 'wef' |
-| `status` | nvarchar(20) | No | 'active' | active, inactive, error |
-| `last_seen` | datetime2 | Yes | — | Last time agent sent data |
-| `created_at` | datetime2 | No | GETDATE() | Row creation time |
+| Column              | Type               | Nullable | Default        | Description               |
+| ------------------- | ------------------ | -------- | -------------- | ------------------------- |
+| `Id`                | int (PK, identity) | No       | Auto-increment | Primary key               |
+| `vm_id`             | nvarchar(100)      | No       | —              | Unique VM identifier      |
+| `hostname`          | nvarchar(256)      | Yes      | —              | VM hostname               |
+| `ip_address`        | nvarchar(45)       | Yes      | —              | VM IP address             |
+| `collection_method` | nvarchar(20)       | Yes      | —              | 'agent' or 'wef'          |
+| `status`            | nvarchar(20)       | No       | 'active'       | active, inactive, error   |
+| `last_seen`         | datetime2          | Yes      | —              | Last time agent sent data |
+| `created_at`        | datetime2          | No       | GETDATE()      | Row creation time         |
 
 **Indexes:**
+
 - `idx_vmsources_vm_id` — (vm_id) UNIQUE
 - `idx_vmsources_status` — (status)
 
 ### Table: PerVMThresholds
 
-| Column | Type | Nullable | Default | Description |
-|---|---|---|---|---|
-| `Id` | int (PK, identity) | No | Auto-increment | Primary key |
-| `vm_id` | nvarchar(100) | No | — | FK to VMSources.vm_id (unique) |
-| `threshold` | int | No | 5 | Failed attempts before suspicious |
-| `time_window_minutes` | int | No | 5 | Time window in minutes |
-| `block_duration_minutes` | int | No | 60 | Auto-block duration in minutes |
-| `auto_block_enabled` | bit | No | 1 (true) | Enable auto-block for this VM |
-| `created_at` | datetime2 | No | GETDATE() | Row creation time |
-| `updated_at` | datetime2 | No | GETDATE() | Last update time |
+| Column                   | Type               | Nullable | Default        | Description                       |
+| ------------------------ | ------------------ | -------- | -------------- | --------------------------------- |
+| `Id`                     | int (PK, identity) | No       | Auto-increment | Primary key                       |
+| `vm_id`                  | nvarchar(100)      | No       | —              | FK to VMSources.vm_id (unique)    |
+| `threshold`              | int                | No       | 5              | Failed attempts before suspicious |
+| `time_window_minutes`    | int                | No       | 5              | Time window in minutes            |
+| `block_duration_minutes` | int                | No       | 60             | Auto-block duration in minutes    |
+| `auto_block_enabled`     | bit                | No       | 1 (true)       | Enable auto-block for this VM     |
+| `created_at`             | datetime2          | No       | GETDATE()      | Row creation time                 |
+| `updated_at`             | datetime2          | No       | GETDATE()      | Last update time                  |
 
 **Indexes:**
+
 - (vm_id) UNIQUE
 - FK relationship: `PerVMThresholds.vm_id` -> `VMSources.vm_id`
 
 ### Table: AttackStatistics
 
-| Column | Type | Nullable | Default | Description |
-|---|---|---|---|---|
-| `Id` | int (PK, identity) | No | Auto-increment | Primary key |
-| `stat_date` | date | Yes | — | The date for this statistic |
-| `vm_id` | nvarchar(100) | Yes | — | NULL = global aggregate |
-| `total_attacks` | int | Yes | — | Total attacks on this date |
-| `unique_attackers` | int | Yes | — | Distinct attacker IPs |
-| `blocked_count` | int | Yes | — | IPs blocked |
-| `top_username` | nvarchar(256) | Yes | — | Most targeted username |
-| `top_ip` | nvarchar(45) | Yes | — | Most active attacker IP |
-| `created_at` | datetime2 | No | GETDATE() | Row creation time |
+| Column             | Type               | Nullable | Default        | Description                 |
+| ------------------ | ------------------ | -------- | -------------- | --------------------------- |
+| `Id`               | int (PK, identity) | No       | Auto-increment | Primary key                 |
+| `stat_date`        | date               | Yes      | —              | The date for this statistic |
+| `vm_id`            | nvarchar(100)      | Yes      | —              | NULL = global aggregate     |
+| `total_attacks`    | int                | Yes      | —              | Total attacks on this date  |
+| `unique_attackers` | int                | Yes      | —              | Distinct attacker IPs       |
+| `blocked_count`    | int                | Yes      | —              | IPs blocked                 |
+| `top_username`     | nvarchar(256)      | Yes      | —              | Most targeted username      |
+| `top_ip`           | nvarchar(45)       | Yes      | —              | Most active attacker IP     |
+| `created_at`       | datetime2          | No       | GETDATE()      | Row creation time           |
 
 **Indexes:**
+
 - `IX_AttackStatistics_StatDate_VmId` — (stat_date, vm_id) UNIQUE
 - `idx_stats_date` — (stat_date)
 - `idx_stats_vm` — (vm_id, stat_date)
@@ -545,6 +683,7 @@ All responses are JSON with **snake_case** field names.
 Health check endpoint.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -562,6 +701,7 @@ Health check endpoint.
 Receive failed login events from agents. This is the main data ingestion endpoint.
 
 **Request Body:**
+
 ```json
 {
   "vm_id": "vm-001",
@@ -582,6 +722,7 @@ Receive failed login events from agents. This is the main data ingestion endpoin
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -590,6 +731,7 @@ Receive failed login events from agents. This is the main data ingestion endpoin
 ```
 
 **What happens server-side:**
+
 1. Dedup check (skip if exact event already exists)
 2. Insert into `FailedLoginAttempts`
 3. Update or insert `SuspiciousIPs` (increment counter)
@@ -608,6 +750,7 @@ Get IPs with failed attempts >= threshold.
 | `threshold` | int | 5 | Minimum failed attempts to include |
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -631,6 +774,7 @@ Get IPs with failed attempts >= threshold.
 Get all currently active blocked IPs.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -654,6 +798,7 @@ Get all currently active blocked IPs.
 Manually block an IP address (global scope).
 
 **Request Body:**
+
 ```json
 {
   "ip_address": "192.168.56.105",
@@ -663,6 +808,7 @@ Manually block an IP address (global scope).
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -677,6 +823,7 @@ Manually block an IP address (global scope).
 Block an IP address for a specific VM only.
 
 **Request Body:**
+
 ```json
 {
   "ip_address": "192.168.56.105",
@@ -687,6 +834,7 @@ Block an IP address for a specific VM only.
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -701,6 +849,7 @@ Block an IP address for a specific VM only.
 Unblock an IP address. Deactivates all active blocks for this IP and sets suspicious status to `cleared`.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -715,6 +864,7 @@ Unblock an IP address. Deactivates all active blocks for this IP and sets suspic
 Register a VM with the collector. Called automatically by the agent on startup.
 
 **Request Body:**
+
 ```json
 {
   "vm_id": "vm-001",
@@ -725,6 +875,7 @@ Register a VM with the collector. Called automatically by the agent on startup.
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -741,6 +892,7 @@ If the VM already exists, its info is updated (hostname, IP, status set to activ
 List all registered VMs.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -765,6 +917,7 @@ List all registered VMs.
 Unregister a VM (sets status to `inactive`, does not delete data).
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -779,6 +932,7 @@ Unregister a VM (sets status to `inactive`, does not delete data).
 Get attack statistics for a specific VM.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -797,6 +951,7 @@ Get attack statistics for a specific VM.
 **Server-Sent Events (SSE)** real-time feed. Streams new attack events as they arrive.
 
 **Headers:**
+
 ```
 Content-Type: text/event-stream
 Cache-Control: no-cache
@@ -804,6 +959,7 @@ Connection: keep-alive
 ```
 
 **Event Format:**
+
 ```
 event: new_attack
 data: {"ip_address":"192.168.56.105","username":"admin","timestamp":"2026-03-04T19:34:16","vm_id":"vm-001"}
@@ -817,6 +973,7 @@ data: keep-alive
 - Each SSE client gets its own channel (multiple clients supported simultaneously)
 
 **Example usage (JavaScript):**
+
 ```javascript
 const evtSource = new EventSource("http://<SERVER_IP>:3000/api/v1/feed");
 evtSource.addEventListener("new_attack", (e) => {
@@ -832,6 +989,7 @@ evtSource.addEventListener("new_attack", (e) => {
 Get overall attack statistics (last 24 hours focus).
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -842,12 +1000,12 @@ Get overall attack statistics (last 24 hours focus).
     "attacks_last_24h": 45,
     "attacks_last_hour": 8,
     "top_attacked_usernames": [
-      {"username": "admin", "count": 50},
-      {"username": "administrator", "count": 30}
+      { "username": "admin", "count": 50 },
+      { "username": "administrator", "count": 30 }
     ],
     "attacks_by_hour": [
-      {"hour": "14:00", "count": 10},
-      {"hour": "15:00", "count": 15}
+      { "hour": "14:00", "count": 10 },
+      { "hour": "15:00", "count": 15 }
     ]
   }
 }
@@ -860,6 +1018,7 @@ Get overall attack statistics (last 24 hours focus).
 Get global statistics across all VMs (includes per-VM breakdown).
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -872,15 +1031,11 @@ Get global statistics across all VMs (includes per-VM breakdown).
     "attacks_last_24h": 45,
     "attacks_last_hour": 8,
     "attacks_by_vm": [
-      {"vm_id": "vm-001", "count": 30},
-      {"vm_id": "vm-002", "count": 15}
+      { "vm_id": "vm-001", "count": 30 },
+      { "vm_id": "vm-002", "count": 15 }
     ],
-    "top_attacked_usernames": [
-      {"username": "admin", "count": 50}
-    ],
-    "attacks_by_hour": [
-      {"hour": "14:00", "count": 10}
-    ]
+    "top_attacked_usernames": [{ "username": "admin", "count": 50 }],
+    "attacks_by_hour": [{ "hour": "14:00", "count": 10 }]
   }
 }
 ```
@@ -892,6 +1047,7 @@ Get global statistics across all VMs (includes per-VM breakdown).
 Stub endpoint for future geo-IP integration. Currently returns an empty array.
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -992,7 +1148,9 @@ nssm start SecurityMonitorApi
 ### "There is already an object named 'X' in the database"
 
 This should not happen with the current code (auto-detection of existing tables). If it does:
+
 - Manually insert the migration record:
+
 ```sql
 INSERT INTO __EFMigrationsHistory (MigrationId, ProductVersion)
 VALUES ('20260304133110_InitialCreate', '10.0.3');
@@ -1054,13 +1212,13 @@ aspbackend/
 
 ### Technology Stack
 
-| Component | Technology | Version |
-|---|---|---|
-| Runtime | .NET | 10.0 LTS |
-| Framework | ASP.NET Core Web API | 10.0 |
-| ORM | Entity Framework Core | 10.0 |
-| Database | SQL Server Express | 2019+ |
-| Auth | Windows Authentication | (Trusted_Connection) |
-| Real-time | Server-Sent Events (SSE) | native |
-| JSON | System.Text.Json | snake_case |
-| DB Approach | Code-First | EF Core Migrations |
+| Component   | Technology               | Version              |
+| ----------- | ------------------------ | -------------------- |
+| Runtime     | .NET                     | 10.0 LTS             |
+| Framework   | ASP.NET Core Web API     | 10.0                 |
+| ORM         | Entity Framework Core    | 10.0                 |
+| Database    | SQL Server Express       | 2019+                |
+| Auth        | Windows Authentication   | (Trusted_Connection) |
+| Real-time   | Server-Sent Events (SSE) | native               |
+| JSON        | System.Text.Json         | snake_case           |
+| DB Approach | Code-First               | EF Core Migrations   |
