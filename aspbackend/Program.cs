@@ -49,6 +49,53 @@ using (var scope = app.Services.CreateScope())
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
     try
     {
+        // If the database already has tables (created by the original Python/SQL scripts)
+        // but no __EFMigrationsHistory, EF Core's Migrate() will try to CREATE TABLE
+        // and fail with "object already exists". Detect this case and mark InitialCreate
+        // as already applied so Migrate() skips it.
+        var conn = db.Database.GetDbConnection();
+        await conn.OpenAsync();
+        using (var cmd = conn.CreateCommand())
+        {
+            // Check if one of our tables already exists
+            cmd.CommandText = "SELECT OBJECT_ID(N'AttackStatistics')";
+            var result = await cmd.ExecuteScalarAsync();
+            bool tablesExist = result != null && result != DBNull.Value;
+
+            if (tablesExist)
+            {
+                // Ensure __EFMigrationsHistory table exists
+                using var ensureCmd = conn.CreateCommand();
+                ensureCmd.CommandText = @"
+                    IF OBJECT_ID(N'[__EFMigrationsHistory]') IS NULL
+                    BEGIN
+                        CREATE TABLE [__EFMigrationsHistory] (
+                            [MigrationId] nvarchar(150) NOT NULL,
+                            [ProductVersion] nvarchar(32) NOT NULL,
+                            CONSTRAINT [PK___EFMigrationsHistory] PRIMARY KEY ([MigrationId])
+                        );
+                    END;";
+                await ensureCmd.ExecuteNonQueryAsync();
+
+                // Mark InitialCreate as applied if not already recorded
+                using var checkCmd = conn.CreateCommand();
+                checkCmd.CommandText = @"
+                    IF NOT EXISTS (
+                        SELECT 1 FROM [__EFMigrationsHistory]
+                        WHERE [MigrationId] = N'20260304133110_InitialCreate'
+                    )
+                    BEGIN
+                        INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+                        VALUES (N'20260304133110_InitialCreate', N'10.0.3');
+                    END;";
+                await checkCmd.ExecuteNonQueryAsync();
+
+                logger.LogInformation("Existing database detected — marked InitialCreate migration as applied.");
+            }
+        }
+        await conn.CloseAsync();
+
+        // Now Migrate() will skip InitialCreate (already recorded) and only apply future migrations
         db.Database.Migrate();
         logger.LogInformation("Database migration applied successfully.");
     }
