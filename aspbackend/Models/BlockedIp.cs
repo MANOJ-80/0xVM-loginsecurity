@@ -14,7 +14,7 @@ public class BlockedIp
     [MaxLength(45)]
     public string IpAddress { get; set; } = string.Empty;
 
-    public DateTime BlockedAt { get; set; } = DateTime.UtcNow;
+    public DateTime BlockedAt { get; set; } = DateTime.Now;
 
     public DateTime? BlockExpires { get; set; }
 

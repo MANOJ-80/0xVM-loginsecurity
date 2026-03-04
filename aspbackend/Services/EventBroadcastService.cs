@@ -6,7 +6,7 @@ namespace SecurityMonitorApi.Services;
 /// <summary>
 /// In-memory event bus for SSE real-time feed.
 /// Uses a subscriber-list pattern so every connected SSE client receives every event.
-/// Each subscriber gets its own unbounded channel; PublishAsync fans out to all of them.
+/// Each subscriber gets its own unbounded channel; Publish fans out to all of them.
 /// </summary>
 public class EventBroadcastService
 {
@@ -16,7 +16,7 @@ public class EventBroadcastService
     /// <summary>
     /// Publish an event to ALL connected SSE clients.
     /// </summary>
-    public async Task PublishAsync(SseEventData data)
+    public void Publish(SseEventData data)
     {
         List<Channel<SseEventData>> snapshot;
         lock (_lock)
@@ -29,8 +29,6 @@ public class EventBroadcastService
             // TryWrite on unbounded channel will always succeed unless the channel is closed
             ch.Writer.TryWrite(data);
         }
-
-        await Task.CompletedTask;
     }
 
     /// <summary>

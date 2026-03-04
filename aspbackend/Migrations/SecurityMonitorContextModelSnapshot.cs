@@ -17,7 +17,7 @@ namespace SecurityMonitorApi.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "8.0.24")
+                .HasAnnotation("ProductVersion", "10.0.3")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -38,7 +38,7 @@ namespace SecurityMonitorApi.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("GETUTCDATE()");
+                        .HasDefaultValueSql("GETDATE()");
 
                     b.Property<DateTime?>("StatDate")
                         .HasColumnType("date")
@@ -99,7 +99,7 @@ namespace SecurityMonitorApi.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2")
                         .HasColumnName("blocked_at")
-                        .HasDefaultValueSql("GETUTCDATE()");
+                        .HasDefaultValueSql("GETDATE()");
 
                     b.Property<string>("BlockedBy")
                         .IsRequired()
@@ -255,7 +255,7 @@ namespace SecurityMonitorApi.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("GETUTCDATE()");
+                        .HasDefaultValueSql("GETDATE()");
 
                     b.Property<int>("Threshold")
                         .ValueGeneratedOnAdd()
@@ -273,7 +273,7 @@ namespace SecurityMonitorApi.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2")
                         .HasColumnName("updated_at")
-                        .HasDefaultValueSql("GETUTCDATE()");
+                        .HasDefaultValueSql("GETDATE()");
 
                     b.Property<string>("VmId")
                         .IsRequired()
@@ -305,7 +305,7 @@ namespace SecurityMonitorApi.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2")
                         .HasColumnName("updated_at")
-                        .HasDefaultValueSql("GETUTCDATE()");
+                        .HasDefaultValueSql("GETDATE()");
 
                     b.Property<string>("Value")
                         .HasMaxLength(500)
@@ -321,42 +321,42 @@ namespace SecurityMonitorApi.Migrations
                         {
                             KeyName = "THRESHOLD",
                             Description = "Failed attempts before marking as suspicious",
-                            UpdatedAt = new DateTime(2026, 3, 4, 12, 33, 50, 949, DateTimeKind.Utc).AddTicks(4048),
+                            UpdatedAt = new DateTime(2026, 3, 4, 18, 52, 49, 10, DateTimeKind.Local).AddTicks(4780),
                             Value = "5"
                         },
                         new
                         {
                             KeyName = "TIME_WINDOW",
                             Description = "Time window in minutes for threshold",
-                            UpdatedAt = new DateTime(2026, 3, 4, 12, 33, 50, 949, DateTimeKind.Utc).AddTicks(4052),
+                            UpdatedAt = new DateTime(2026, 3, 4, 18, 52, 49, 26, DateTimeKind.Local).AddTicks(8853),
                             Value = "5"
                         },
                         new
                         {
                             KeyName = "BLOCK_DURATION",
                             Description = "Auto-block duration in minutes",
-                            UpdatedAt = new DateTime(2026, 3, 4, 12, 33, 50, 949, DateTimeKind.Utc).AddTicks(4054),
+                            UpdatedAt = new DateTime(2026, 3, 4, 18, 52, 49, 26, DateTimeKind.Local).AddTicks(8893),
                             Value = "60"
                         },
                         new
                         {
                             KeyName = "ENABLE_AUTO_BLOCK",
                             Description = "Enable automatic IP blocking",
-                            UpdatedAt = new DateTime(2026, 3, 4, 12, 33, 50, 949, DateTimeKind.Utc).AddTicks(4055),
+                            UpdatedAt = new DateTime(2026, 3, 4, 18, 52, 49, 26, DateTimeKind.Local).AddTicks(8897),
                             Value = "true"
                         },
                         new
                         {
                             KeyName = "GLOBAL_THRESHOLD",
                             Description = "Global threshold across all VMs",
-                            UpdatedAt = new DateTime(2026, 3, 4, 12, 33, 50, 949, DateTimeKind.Utc).AddTicks(4057),
+                            UpdatedAt = new DateTime(2026, 3, 4, 18, 52, 49, 26, DateTimeKind.Local).AddTicks(8900),
                             Value = "5"
                         },
                         new
                         {
                             KeyName = "ENABLE_GLOBAL_AUTO_BLOCK",
                             Description = "Enable global auto-blocking",
-                            UpdatedAt = new DateTime(2026, 3, 4, 12, 33, 50, 949, DateTimeKind.Utc).AddTicks(4058),
+                            UpdatedAt = new DateTime(2026, 3, 4, 18, 52, 49, 26, DateTimeKind.Local).AddTicks(8902),
                             Value = "true"
                         });
                 });
@@ -373,7 +373,7 @@ namespace SecurityMonitorApi.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("GETUTCDATE()");
+                        .HasDefaultValueSql("GETDATE()");
 
                     b.Property<int>("FailedAttempts")
                         .ValueGeneratedOnAdd()
@@ -411,7 +411,7 @@ namespace SecurityMonitorApi.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2")
                         .HasColumnName("updated_at")
-                        .HasDefaultValueSql("GETUTCDATE()");
+                        .HasDefaultValueSql("GETDATE()");
 
                     b.HasKey("Id");
 
@@ -442,7 +442,7 @@ namespace SecurityMonitorApi.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("GETUTCDATE()");
+                        .HasDefaultValueSql("GETDATE()");
 
                     b.Property<string>("Hostname")
                         .HasMaxLength(256)

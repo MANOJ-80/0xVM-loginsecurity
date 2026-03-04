@@ -91,7 +91,7 @@ public class SecurityMonitorController : ControllerBase
             // Push to SSE feed after successful DB save
             foreach (var ev in req.Events)
             {
-                await _broadcast.PublishAsync(new SseEventData
+                _broadcast.Publish(new SseEventData
                 {
                     IpAddress = ev.IpAddress,
                     Username = ev.Username,

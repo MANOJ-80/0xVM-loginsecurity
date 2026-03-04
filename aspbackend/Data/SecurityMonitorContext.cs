@@ -119,12 +119,12 @@ public class SecurityMonitorContext : DbContext
             entity.Property(e => e.CreatedAt)
                 .HasColumnName("created_at")
                 .HasColumnType("datetime2")
-                .HasDefaultValueSql("GETUTCDATE()");
+                .HasDefaultValueSql("GETDATE()");
 
             entity.Property(e => e.UpdatedAt)
                 .HasColumnName("updated_at")
                 .HasColumnType("datetime2")
-                .HasDefaultValueSql("GETUTCDATE()");
+                .HasDefaultValueSql("GETDATE()");
 
             entity.HasIndex(e => e.Status)
                 .HasDatabaseName("idx_suspicious_status");
@@ -145,7 +145,7 @@ public class SecurityMonitorContext : DbContext
             entity.Property(e => e.BlockedAt)
                 .HasColumnName("blocked_at")
                 .HasColumnType("datetime2")
-                .HasDefaultValueSql("GETUTCDATE()");
+                .HasDefaultValueSql("GETDATE()");
 
             entity.Property(e => e.BlockExpires)
                 .HasColumnName("block_expires")
@@ -215,7 +215,7 @@ public class SecurityMonitorContext : DbContext
             entity.Property(e => e.UpdatedAt)
                 .HasColumnName("updated_at")
                 .HasColumnType("datetime2")
-                .HasDefaultValueSql("GETUTCDATE()");
+                .HasDefaultValueSql("GETDATE()");
 
             // Seed default settings
             entity.HasData(
@@ -268,7 +268,7 @@ public class SecurityMonitorContext : DbContext
             entity.Property(e => e.CreatedAt)
                 .HasColumnName("created_at")
                 .HasColumnType("datetime2")
-                .HasDefaultValueSql("GETUTCDATE()");
+                .HasDefaultValueSql("GETDATE()");
 
             entity.HasIndex(e => e.Status)
                 .HasDatabaseName("idx_vmsources_status");
@@ -308,12 +308,12 @@ public class SecurityMonitorContext : DbContext
             entity.Property(e => e.CreatedAt)
                 .HasColumnName("created_at")
                 .HasColumnType("datetime2")
-                .HasDefaultValueSql("GETUTCDATE()");
+                .HasDefaultValueSql("GETDATE()");
 
             entity.Property(e => e.UpdatedAt)
                 .HasColumnName("updated_at")
                 .HasColumnType("datetime2")
-                .HasDefaultValueSql("GETUTCDATE()");
+                .HasDefaultValueSql("GETDATE()");
 
             // FK to VMSources.vm_id
             entity.HasOne(e => e.VmSource)
@@ -357,7 +357,7 @@ public class SecurityMonitorContext : DbContext
             entity.Property(e => e.CreatedAt)
                 .HasColumnName("created_at")
                 .HasColumnType("datetime2")
-                .HasDefaultValueSql("GETUTCDATE()");
+                .HasDefaultValueSql("GETDATE()");
 
             // Unique constraint on (stat_date, vm_id)
             entity.HasIndex(e => new { e.StatDate, e.VmId })

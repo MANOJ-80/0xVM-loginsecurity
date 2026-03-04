@@ -16,5 +16,5 @@ public class Setting
     [MaxLength(500)]
     public string? Description { get; set; }
 
-    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.Now;
 }

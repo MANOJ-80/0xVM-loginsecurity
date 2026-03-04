@@ -26,7 +26,7 @@ namespace SecurityMonitorApi.Migrations
                     blocked_count = table.Column<int>(type: "int", nullable: true),
                     top_username = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
                     top_ip = table.Column<string>(type: "nvarchar(45)", maxLength: 45, nullable: true),
-                    created_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETUTCDATE()")
+                    created_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETDATE()")
                 },
                 constraints: table =>
                 {
@@ -40,7 +40,7 @@ namespace SecurityMonitorApi.Migrations
                     Id = table.Column<int>(type: "int", nullable: false)
                         .Annotation("SqlServer:Identity", "1, 1"),
                     ip_address = table.Column<string>(type: "nvarchar(45)", maxLength: 45, nullable: false),
-                    blocked_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETUTCDATE()"),
+                    blocked_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETDATE()"),
                     block_expires = table.Column<DateTime>(type: "datetime2", nullable: true),
                     reason = table.Column<string>(type: "nvarchar(500)", maxLength: 500, nullable: true),
                     blocked_by = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: false, defaultValue: "auto"),
@@ -83,7 +83,7 @@ namespace SecurityMonitorApi.Migrations
                     key_name = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false),
                     value = table.Column<string>(type: "nvarchar(500)", maxLength: 500, nullable: true),
                     description = table.Column<string>(type: "nvarchar(500)", maxLength: 500, nullable: true),
-                    updated_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETUTCDATE()")
+                    updated_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETDATE()")
                 },
                 constraints: table =>
                 {
@@ -102,8 +102,8 @@ namespace SecurityMonitorApi.Migrations
                     last_attempt = table.Column<DateTime>(type: "datetime2", nullable: true),
                     target_usernames = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     status = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: false, defaultValue: "active"),
-                    created_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETUTCDATE()"),
-                    updated_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETUTCDATE()")
+                    created_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETDATE()"),
+                    updated_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETDATE()")
                 },
                 constraints: table =>
                 {
@@ -122,7 +122,7 @@ namespace SecurityMonitorApi.Migrations
                     collection_method = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: true),
                     status = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: false, defaultValue: "active"),
                     last_seen = table.Column<DateTime>(type: "datetime2", nullable: true),
-                    created_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETUTCDATE()")
+                    created_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETDATE()")
                 },
                 constraints: table =>
                 {
@@ -141,8 +141,8 @@ namespace SecurityMonitorApi.Migrations
                     time_window_minutes = table.Column<int>(type: "int", nullable: false, defaultValue: 5),
                     block_duration_minutes = table.Column<int>(type: "int", nullable: false, defaultValue: 60),
                     auto_block_enabled = table.Column<bool>(type: "bit", nullable: false, defaultValue: true),
-                    created_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETUTCDATE()"),
-                    updated_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETUTCDATE()")
+                    created_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETDATE()"),
+                    updated_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETDATE()")
                 },
                 constraints: table =>
                 {
@@ -160,12 +160,12 @@ namespace SecurityMonitorApi.Migrations
                 columns: new[] { "key_name", "description", "updated_at", "value" },
                 values: new object[,]
                 {
-                    { "BLOCK_DURATION", "Auto-block duration in minutes", new DateTime(2026, 3, 4, 12, 33, 50, 949, DateTimeKind.Utc).AddTicks(4054), "60" },
-                    { "ENABLE_AUTO_BLOCK", "Enable automatic IP blocking", new DateTime(2026, 3, 4, 12, 33, 50, 949, DateTimeKind.Utc).AddTicks(4055), "true" },
-                    { "ENABLE_GLOBAL_AUTO_BLOCK", "Enable global auto-blocking", new DateTime(2026, 3, 4, 12, 33, 50, 949, DateTimeKind.Utc).AddTicks(4058), "true" },
-                    { "GLOBAL_THRESHOLD", "Global threshold across all VMs", new DateTime(2026, 3, 4, 12, 33, 50, 949, DateTimeKind.Utc).AddTicks(4057), "5" },
-                    { "THRESHOLD", "Failed attempts before marking as suspicious", new DateTime(2026, 3, 4, 12, 33, 50, 949, DateTimeKind.Utc).AddTicks(4048), "5" },
-                    { "TIME_WINDOW", "Time window in minutes for threshold", new DateTime(2026, 3, 4, 12, 33, 50, 949, DateTimeKind.Utc).AddTicks(4052), "5" }
+                    { "BLOCK_DURATION", "Auto-block duration in minutes", new DateTime(2026, 3, 4, 18, 52, 49, 26, DateTimeKind.Local).AddTicks(8893), "60" },
+                    { "ENABLE_AUTO_BLOCK", "Enable automatic IP blocking", new DateTime(2026, 3, 4, 18, 52, 49, 26, DateTimeKind.Local).AddTicks(8897), "true" },
+                    { "ENABLE_GLOBAL_AUTO_BLOCK", "Enable global auto-blocking", new DateTime(2026, 3, 4, 18, 52, 49, 26, DateTimeKind.Local).AddTicks(8902), "true" },
+                    { "GLOBAL_THRESHOLD", "Global threshold across all VMs", new DateTime(2026, 3, 4, 18, 52, 49, 26, DateTimeKind.Local).AddTicks(8900), "5" },
+                    { "THRESHOLD", "Failed attempts before marking as suspicious", new DateTime(2026, 3, 4, 18, 52, 49, 10, DateTimeKind.Local).AddTicks(4780), "5" },
+                    { "TIME_WINDOW", "Time window in minutes for threshold", new DateTime(2026, 3, 4, 18, 52, 49, 26, DateTimeKind.Local).AddTicks(8853), "5" }
                 });
 
             migrationBuilder.CreateIndex(

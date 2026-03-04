@@ -34,7 +34,7 @@ public class VmSource
 
     public DateTime? LastSeen { get; set; }
 
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
 
     // Navigation property
     public PerVmThreshold? PerVmThreshold { get; set; }
