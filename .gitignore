@@ -49,6 +49,14 @@ yarn-debug.log*
 yarn-error.log*
 .next/
 
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.vs/
+*.DotSettings.user
+
 # Internal / personal docs (keep local only)
 NEW_SESSION.md
 SESSION_NOTES.md
