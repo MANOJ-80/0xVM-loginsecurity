@@ -321,42 +321,42 @@ namespace SecurityMonitorApi.Migrations
                         {
                             KeyName = "THRESHOLD",
                             Description = "Failed attempts before marking as suspicious",
-                            UpdatedAt = new DateTime(2026, 3, 4, 18, 52, 49, 10, DateTimeKind.Local).AddTicks(4780),
+                            UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             Value = "5"
                         },
                         new
                         {
                             KeyName = "TIME_WINDOW",
                             Description = "Time window in minutes for threshold",
-                            UpdatedAt = new DateTime(2026, 3, 4, 18, 52, 49, 26, DateTimeKind.Local).AddTicks(8853),
+                            UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             Value = "5"
                         },
                         new
                         {
                             KeyName = "BLOCK_DURATION",
                             Description = "Auto-block duration in minutes",
-                            UpdatedAt = new DateTime(2026, 3, 4, 18, 52, 49, 26, DateTimeKind.Local).AddTicks(8893),
+                            UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             Value = "60"
                         },
                         new
                         {
                             KeyName = "ENABLE_AUTO_BLOCK",
                             Description = "Enable automatic IP blocking",
-                            UpdatedAt = new DateTime(2026, 3, 4, 18, 52, 49, 26, DateTimeKind.Local).AddTicks(8897),
+                            UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             Value = "true"
                         },
                         new
                         {
                             KeyName = "GLOBAL_THRESHOLD",
                             Description = "Global threshold across all VMs",
-                            UpdatedAt = new DateTime(2026, 3, 4, 18, 52, 49, 26, DateTimeKind.Local).AddTicks(8900),
+                            UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             Value = "5"
                         },
                         new
                         {
                             KeyName = "ENABLE_GLOBAL_AUTO_BLOCK",
                             Description = "Enable global auto-blocking",
-                            UpdatedAt = new DateTime(2026, 3, 4, 18, 52, 49, 26, DateTimeKind.Local).AddTicks(8902),
+                            UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified),
                             Value = "true"
                         });
                 });

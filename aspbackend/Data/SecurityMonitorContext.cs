@@ -218,13 +218,16 @@ public class SecurityMonitorContext : DbContext
                 .HasDefaultValueSql("GETDATE()");
 
             // Seed default settings
+            // UpdatedAt must be a static value — DateTime.Now in HasData causes
+            // PendingModelChangesWarning because the value differs on every build.
+            var seedDate = new DateTime(2026, 1, 1, 0, 0, 0);
             entity.HasData(
-                new Setting { KeyName = "THRESHOLD", Value = "5", Description = "Failed attempts before marking as suspicious" },
-                new Setting { KeyName = "TIME_WINDOW", Value = "5", Description = "Time window in minutes for threshold" },
-                new Setting { KeyName = "BLOCK_DURATION", Value = "60", Description = "Auto-block duration in minutes" },
-                new Setting { KeyName = "ENABLE_AUTO_BLOCK", Value = "true", Description = "Enable automatic IP blocking" },
-                new Setting { KeyName = "GLOBAL_THRESHOLD", Value = "5", Description = "Global threshold across all VMs" },
-                new Setting { KeyName = "ENABLE_GLOBAL_AUTO_BLOCK", Value = "true", Description = "Enable global auto-blocking" }
+                new Setting { KeyName = "THRESHOLD", Value = "5", Description = "Failed attempts before marking as suspicious", UpdatedAt = seedDate },
+                new Setting { KeyName = "TIME_WINDOW", Value = "5", Description = "Time window in minutes for threshold", UpdatedAt = seedDate },
+                new Setting { KeyName = "BLOCK_DURATION", Value = "60", Description = "Auto-block duration in minutes", UpdatedAt = seedDate },
+                new Setting { KeyName = "ENABLE_AUTO_BLOCK", Value = "true", Description = "Enable automatic IP blocking", UpdatedAt = seedDate },
+                new Setting { KeyName = "GLOBAL_THRESHOLD", Value = "5", Description = "Global threshold across all VMs", UpdatedAt = seedDate },
+                new Setting { KeyName = "ENABLE_GLOBAL_AUTO_BLOCK", Value = "true", Description = "Enable global auto-blocking", UpdatedAt = seedDate }
             );
         });
 
