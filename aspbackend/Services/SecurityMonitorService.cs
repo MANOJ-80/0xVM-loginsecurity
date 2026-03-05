@@ -19,6 +19,60 @@ public class SecurityMonitorService
     }
 
     // =========================================================================
+    // Settings & Threshold Helpers
+    // =========================================================================
+    
+    private async Task<(int Threshold, int TimeWindowMinutes, int BlockDurationMinutes, bool AutoBlockEnabled)> 
+        GetThresholdSettingsAsync(string? sourceVmId)
+    {
+        // First check for per-VM threshold
+        if (!string.IsNullOrEmpty(sourceVmId))
+        {
+            var perVm = await _db.PerVMThresholds
+                .FirstOrDefaultAsync(p => p.VmId == sourceVmId);
+            
+            if (perVm != null)
+            {
+                return (
+                    perVm.Threshold,
+                    perVm.TimeWindowMinutes,
+                    perVm.BlockDurationMinutes,
+                    perVm.AutoBlockEnabled
+                );
+            }
+        }
+
+        // Fall back to global settings
+        var settings = await _db.Settings.ToDictionaryAsync(s => s.KeyName, s => s.Value);
+        
+        int.TryParse(settings.GetValueOrDefault("GLOBAL_THRESHOLD", "5"), out var globalThreshold);
+        int.TryParse(settings.GetValueOrDefault("TIME_WINDOW", "5"), out var timeWindow);
+        int.TryParse(settings.GetValueOrDefault("BLOCK_DURATION", "60"), out var blockDuration);
+        var autoBlockEnabled = settings.GetValueOrDefault("ENABLE_AUTO_BLOCK", "true")?.ToLower() == "true";
+
+        return (globalThreshold, timeWindow, blockDuration, autoBlockEnabled);
+    }
+
+    private async Task<bool> IsAutoBlockEnabledAsync()
+    {
+        var setting = await _db.Settings.FirstOrDefaultAsync(s => s.KeyName == "ENABLE_AUTO_BLOCK");
+        return setting?.Value?.ToLower() == "true";
+    }
+
+    private async Task<bool> IsIpAlreadyBlockedAsync(string ipAddress, string? targetVmId = null)
+    {
+        if (string.IsNullOrEmpty(targetVmId))
+        {
+            return await _db.BlockedIPs.AnyAsync(b => b.IpAddress == ipAddress && b.IsActive);
+        }
+        
+        return await _db.BlockedIPs.AnyAsync(b => 
+            b.IpAddress == ipAddress && 
+            b.IsActive && 
+            (b.Scope == "global" || b.TargetVmId == targetVmId));
+    }
+
+    // =========================================================================
     // Equivalent of sp_RecordFailedLoginMultiVM
     // =========================================================================
     public async Task RecordFailedLoginAsync(
@@ -44,7 +98,9 @@ public class SecurityMonitorService
             int? LogonType, string? FailureReason, int? SourcePort,
             string? SourceVmId, DateTime? EventTimestamp)> events)
     {
-        foreach (var ev in events)
+        var eventsList = events.ToList();
+        
+        foreach (var ev in eventsList)
         {
             await RecordFailedLoginCoreAsync(ev.IpAddress, ev.Username, ev.Hostname,
                 ev.LogonType, ev.FailureReason, ev.SourcePort,
@@ -56,6 +112,7 @@ public class SecurityMonitorService
 
     /// <summary>
     /// Core logic for recording a single failed login — stages changes but does NOT call SaveChanges.
+    /// Also handles threshold detection and auto-blocking.
     /// </summary>
     private async Task RecordFailedLoginCoreAsync(
         string ipAddress,
@@ -102,16 +159,32 @@ public class SecurityMonitorService
             suspicious.FailedAttempts += 1;
             suspicious.LastAttempt = ts;
             suspicious.UpdatedAt = DateTime.Now;
+            
+            // Update target usernames JSON
+            var usernames = string.IsNullOrEmpty(suspicious.TargetUsernames) 
+                ? new List<string>() 
+                : System.Text.Json.JsonSerializer.Deserialize<List<string>>(suspicious.TargetUsernames) ?? new List<string>();
+            
+            if (!string.IsNullOrEmpty(username) && !usernames.Contains(username))
+            {
+                usernames.Add(username);
+                if (usernames.Count > 20) usernames.RemoveAt(0); // Keep last 20
+                suspicious.TargetUsernames = System.Text.Json.JsonSerializer.Serialize(usernames);
+            }
         }
         else
         {
-            _db.SuspiciousIPs.Add(new SuspiciousIp
+            var newSuspicious = new SuspiciousIp
             {
                 IpAddress = ipAddress,
                 FailedAttempts = 1,
                 FirstAttempt = ts,
-                LastAttempt = ts
-            });
+                LastAttempt = ts,
+                TargetUsernames = username != null 
+                    ? System.Text.Json.JsonSerializer.Serialize(new List<string> { username }) 
+                    : null
+            };
+            _db.SuspiciousIPs.Add(newSuspicious);
         }
 
         // Touch VMSources.last_seen so we know the agent is alive
@@ -123,6 +196,81 @@ public class SecurityMonitorService
                 vm.LastSeen = DateTime.Now;
             }
         }
+
+        // ========================================================
+        // THRESHOLD DETECTION & AUTO-BLOCK LOGIC (Tasks 1, 2, 2b)
+        // ========================================================
+        await CheckThresholdAndAutoBlockAsync(ipAddress, sourceVmId);
+    }
+
+    /// <summary>
+    /// Check if IP exceeds threshold and auto-block if needed.
+    /// Returns true if IP was blocked.
+    /// </summary>
+    private async Task<bool> CheckThresholdAndAutoBlockAsync(string ipAddress, string? sourceVmId)
+    {
+        // Check if auto-block is enabled
+        var autoBlockEnabled = await IsAutoBlockEnabledAsync();
+        if (!autoBlockEnabled)
+            return false;
+
+        // Check if already blocked
+        if (await IsIpAlreadyBlockedAsync(ipAddress, sourceVmId))
+            return false;
+
+        // Get threshold settings (global or per-VM)
+        var (threshold, timeWindow, blockDuration, vmAutoBlockEnabled) = await GetThresholdSettingsAsync(sourceVmId);
+        
+        // Check if per-VM auto-block is disabled
+        if (!vmAutoBlockEnabled)
+            return false;
+
+        // Count attempts within time window
+        var windowStart = DateTime.Now.AddMinutes(-timeWindow);
+        var attemptCount = await _db.FailedLoginAttempts
+            .CountAsync(f => f.IpAddress == ipAddress && f.Timestamp >= windowStart);
+
+        // If threshold exceeded, stage auto-block (don't save yet - let batch handle it)
+        if (attemptCount >= threshold)
+        {
+            var reason = $"Auto-block: exceeded threshold ({attemptCount} attempts in {timeWindow} minutes)";
+            
+            if (!string.IsNullOrEmpty(sourceVmId))
+            {
+                // Stage the block - don't save yet
+                _db.BlockedIPs.Add(new BlockedIp
+                {
+                    IpAddress = ipAddress,
+                    Reason = reason,
+                    BlockExpires = DateTime.Now.AddMinutes(blockDuration),
+                    BlockedBy = "auto",
+                    Scope = "per-vm",
+                    TargetVmId = sourceVmId
+                });
+            }
+            else
+            {
+                // Stage the block - don't save yet
+                _db.BlockedIPs.Add(new BlockedIp
+                {
+                    IpAddress = ipAddress,
+                    Reason = reason,
+                    BlockExpires = DateTime.Now.AddMinutes(blockDuration),
+                    BlockedBy = "auto"
+                });
+            }
+
+            // Update suspicious IP status
+            var suspicious = await _db.SuspiciousIPs.FirstOrDefaultAsync(s => s.IpAddress == ipAddress);
+            if (suspicious != null)
+            {
+                suspicious.Status = "blocked";
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
     // =========================================================================
