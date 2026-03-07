@@ -1811,3 +1811,204 @@ Implemented threshold detection and automatic IP blocking logic in the ASP.NET b
 ### What's Remaining
 - Add API endpoints for Per-VM threshold configuration (Task 2d in TODO.md)
 - All other TODO items (firewall integration, geo-location, etc.)
+
+---
+
+## Session 13 — Frontend Dashboard + JWT Auth + Bug Fix Passes
+
+**Date:** 2026-03-05 to 2026-03-06
+**Commits:** `e4bdc91` → `164ce63` → `6042f42` → `865d37d` → `b6d31ad` → `a946b12`
+
+### Summary
+
+Built the full React frontend dashboard, implemented JWT authentication on both backend and frontend, renamed directories, and performed multiple comprehensive bug fix passes across the entire codebase.
+
+### What Was Done
+
+#### JWT Authentication System (Backend)
+- Added `AuthController.cs` with 3 endpoints: register, login, get current user
+- Added `User` model with BCrypt password hashing
+- JWT Bearer auth with 24h token expiry
+- Role-based access: "admin" and "analyst" roles via `ClaimTypes.Role`
+- `[Authorize]` on all data endpoints, `[Authorize(Roles = "admin")]` on mutation endpoints
+- `[AllowAnonymous]` on health, events (agent), feed (SSE), and auth endpoints
+
+#### Frontend Dashboard (React + Vite)
+- **Login/Register pages** with form validation
+- **AuthContext** with JWT token persistence in localStorage, auto-validate on page load via `/auth/me`
+- **ProtectedRoute** component redirects unauthenticated users to login
+- **Sidebar** navigation with role-aware menu items
+- **Dashboard** — stat cards, attacks by hour chart, attacks by VM chart, top attacked usernames
+- **SuspiciousIPs** — IP table with search
+- **BlockedIPs** — blocked IP list with manual block modal (admin only)
+- **VMAssets** — VM list with detail panel showing attack history
+- **VMStats** — per-VM analytics page
+- **LiveFeed** — real-time SSE event stream display
+
+#### Directory Restructure
+- Renamed `aspbackend/` → `backend/`
+- Renamed `cyber-monitor-dashboard/` → `frontend/`
+
+#### Bug Fixes (across multiple passes)
+- Fixed all frontend component bugs from initial implementation
+- Added missing features discovered during review
+- Comprehensive backend + frontend bug fix pass (commit `a946b12`)
+
+### API Route Changes (from Session 11)
+Routes were refactored for consistency:
+- `/api/v1/blocked-ips` (POST) → `/api/v1/block` (POST)
+- `/api/v1/blocked-ips/{ip}` (DELETE) → `/api/v1/block/{ip}` (DELETE)
+- `/api/v1/vm-sources` → `/api/v1/vms`
+- `/api/v1/vm-attacks/{vm_id}` → `/api/v1/vms/{vmId}/attacks`
+- Added `/api/v1/block/per-vm` (POST) for per-VM scoped blocks
+- Added `/api/v1/statistics/global` with VM counts and breakdowns
+
+---
+
+## Session 14 — Feature Pack: Thresholds, Permanent Blocks, Suspicious IPs Fix, Migration Fix
+
+**Date:** 2026-03-07
+**Commits:** `424de37` (local), `06ab696` (pushed)
+
+### Summary
+
+Five major features/fixes in a single session. All changes committed and pushed to `origin/master`.
+
+### 1. AttackStatistics Removed (Dead Code Cleanup)
+
+The `AttackStatistics` table/model was unused dead code — never populated by any service logic, no API endpoint read from it. Removed entirely:
+- Deleted `backend/Models/AttackStatistic.cs`
+- Removed `DbSet<AttackStatistic>` from `SecurityMonitorContext.cs`
+- Removed `OnModelCreating` config block for AttackStatistic
+- Removed from model snapshot (`SecurityMonitorContextModelSnapshot.cs`)
+- Changed `Program.cs` migration detection query from `AttackStatistics` to `FailedLoginAttempts`
+
+Note: AttackStatistics remains in `InitialCreate.cs` / `InitialCreate.Designer.cs` since those represent historical migration state (already applied to DB).
+
+### 2. Per-VM Thresholds CRUD (Backend + Frontend)
+
+**Backend** — 5 new endpoints in `SecurityMonitorController.cs`:
+- `GET /api/v1/thresholds` — all per-VM overrides
+- `GET /api/v1/thresholds/global` — current global defaults from Settings table
+- `GET /api/v1/thresholds/{vmId}` — resolved settings for a VM (per-VM if exists, else global fallback)
+- `PUT /api/v1/thresholds/{vmId}` — create/update per-VM override (admin only)
+- `DELETE /api/v1/thresholds/{vmId}` — delete override, revert to global (admin only)
+
+5 new service methods in `SecurityMonitorService.cs`:
+- `GetAllPerVmThresholdsAsync()`
+- `GetVmThresholdAsync(vmId)`
+- `UpsertPerVmThresholdAsync(dto)`
+- `DeletePerVmThresholdAsync(vmId)`
+- `GetGlobalThresholdAsync()`
+
+New DTOs: `PerVmThresholdDto`, `PerVmThresholdResponse`
+
+**Frontend** — Threshold config panel added to VMAssets detail view:
+- Form fields: threshold, time window, block duration, auto-block toggle
+- "Save Override" button → `PUT /api/v1/thresholds/{vmId}`
+- "Reset to Global" button → `DELETE /api/v1/thresholds/{vmId}`
+- Loads current settings on VM detail open (per-VM or global fallback)
+- Admin-only controls (hidden for analyst role)
+
+New API functions in `api.js`: `getVmThreshold`, `getGlobalThreshold`, `upsertVmThreshold`, `deleteVmThreshold`
+
+### 3. Permanent Block Support
+
+**Backend:**
+- `BlockIpAsync()` and `BlockIpPerVmAsync()` now treat `duration_minutes = 0` as permanent (`BlockExpires = null`)
+- Controller response messages: "blocked permanently" vs "blocked for N minutes"
+- XML doc comments added to `ManualBlockRequest.DurationMinutes` and `PerVmBlockRequest.DurationMinutes`
+
+**Frontend** — Duration preset dropdowns replace raw minute inputs:
+- BlockedIPs modal: `<select>` with options: 1h, 2h, 6h, 24h, 7d, 30d, Permanent
+- VMAssets per-VM block form: same dropdown (1h, 6h, 24h, 7d, 30d, Permanent)
+- SuspiciousIPs block action: same dropdown for admin users
+
+### 4. SuspiciousIPs Logic Fix
+
+**Problem:** The old logic filtered `failed_attempts >= threshold AND status == "active"`, but auto-block immediately sets status to "blocked". So the page was always empty after auto-block triggered — the exact IPs you want to see were hidden.
+
+**Backend fix** (`GetSuspiciousIpsAsync`):
+- Now returns ALL IPs with `failed_attempts >= 2` regardless of status
+- Added `RiskLevel` field (computed): "blocked", "cleared", "critical" (>= threshold), "high" (>= 70%), "medium" (>= 40%), "low"
+- Added `TargetUsernames` field: parsed from JSON string to `List<string>`
+- Threshold parameter still accepted but only used for risk level computation, not filtering
+
+**Frontend rewrite** (`SuspiciousIPs.jsx`):
+- Risk level color-coded badges (critical=red, high=orange, medium=yellow, low=green, blocked=gray, cleared=blue)
+- Target usernames column with expand/collapse for long lists
+- Status filter tabs: All / Active / Blocked / Cleared (with counts)
+- Blocked rows dimmed with "Already blocked" label
+- Block duration preset dropdown for admin users
+- Search now matches risk level and usernames
+
+### 5. EF Core Migration Snapshot Fix (Pre-existing Bug)
+
+**Discovery:** The `User` entity was completely missing from both `SecurityMonitorContextModelSnapshot.cs` and `20260304133110_InitialCreate.Designer.cs`. This was a pre-existing bug from Session 11 — the User model was added to DbContext but never included in the migration artifacts.
+
+**Impact:** Without this fix, `dotnet ef migrations add` would detect the User entity as a new model change and try to generate a new migration to create the Users table (which already exists in the DB).
+
+**Fix:**
+- Added full User entity block to `SecurityMonitorContextModelSnapshot.cs`
+- Added full User entity block to `20260304133110_InitialCreate.Designer.cs`
+- Added Users `CreateTable` + indexes (`idx_users_email`, `idx_users_username`) to `20260304133110_InitialCreate.cs` `Up()` method
+- Added `DropTable("Users")` to `Down()` method
+
+### Files Changed (13 files, +889 -269)
+
+**Backend:**
+- `backend/Models/AttackStatistic.cs` — DELETED
+- `backend/Data/SecurityMonitorContext.cs` — removed AttackStatistics DbSet and config
+- `backend/DTOs/Dtos.cs` — added SuspiciousIpDto fields, threshold DTOs, XML comments
+- `backend/Services/SecurityMonitorService.cs` — threshold CRUD, permanent blocks, suspicious IPs rewrite
+- `backend/Controllers/SecurityMonitorController.cs` — 5 threshold endpoints, permanent block messages
+- `backend/Program.cs` — migration detection query fix
+- `backend/Migrations/SecurityMonitorContextModelSnapshot.cs` — removed AttackStatistic, added User
+- `backend/Migrations/20260304133110_InitialCreate.Designer.cs` — added User entity
+- `backend/Migrations/20260304133110_InitialCreate.cs` — added Users CreateTable + indexes + DropTable
+
+**Frontend:**
+- `frontend/src/pages/SuspiciousIPs.jsx` — complete rewrite
+- `frontend/src/pages/VMAssets.jsx` — threshold config panel, duration dropdown
+- `frontend/src/pages/BlockedIPs.jsx` — duration preset dropdown
+- `frontend/src/services/api.js` — threshold API functions, simplified getSuspiciousIps
+
+### Current API Endpoint Map
+
+**Auth (AllowAnonymous):**
+| Method | Route | Access |
+|--------|-------|--------|
+| POST | `/api/v1/auth/register` | public |
+| POST | `/api/v1/auth/login` | public |
+| GET | `/api/v1/auth/me` | authenticated |
+
+**Data (Authorize):**
+| Method | Route | Access |
+|--------|-------|--------|
+| GET | `/api/v1/statistics` | authenticated |
+| GET | `/api/v1/statistics/global` | authenticated |
+| GET | `/api/v1/suspicious-ips` | authenticated |
+| GET | `/api/v1/blocked-ips` | authenticated |
+| POST | `/api/v1/block` | admin |
+| POST | `/api/v1/block/per-vm` | admin |
+| DELETE | `/api/v1/block/{ip}` | admin |
+| GET | `/api/v1/vms` | authenticated |
+| POST | `/api/v1/vms` | admin |
+| DELETE | `/api/v1/vms/{vmId}` | admin |
+| GET | `/api/v1/vms/{vmId}/attacks` | authenticated |
+| GET | `/api/v1/thresholds` | authenticated |
+| GET | `/api/v1/thresholds/global` | authenticated |
+| GET | `/api/v1/thresholds/{vmId}` | authenticated |
+| PUT | `/api/v1/thresholds/{vmId}` | admin |
+| DELETE | `/api/v1/thresholds/{vmId}` | admin |
+
+**Open (AllowAnonymous):**
+| Method | Route | Access |
+|--------|-------|--------|
+| GET | `/api/v1/health` | public |
+| POST | `/api/v1/events` | public (agent) |
+| GET | `/api/v1/feed` | public (SSE) |
+
+### What's Remaining
+- Manual E2E testing (test plan prepared, not yet executed)
+- Future: firewall integration, geo-IP, exponential backoff blocking, alert system

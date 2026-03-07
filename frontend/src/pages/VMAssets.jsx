@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
-import { MdAdd, MdRefresh, MdClose, MdCircle, MdBlock, MdTune, MdRestartAlt } from "react-icons/md";
+import { MdAdd, MdRefresh, MdClose, MdCircle, MdBlock, MdTune, MdRestartAlt, MdShield, MdLockOpen } from "react-icons/md";
 import Sidebar from "../components/Sidebar";
 import StatCard from "../components/StatCard";
-import { getVMs, getVmAttacks, registerVm, deleteVm, blockIpPerVm, getVmThreshold, upsertVmThreshold, deleteVmThreshold } from "../services/api";
+import { getVMs, getVmAttacks, registerVm, deleteVm, blockIpPerVm, getBlockedIps, unblockIp, getVmThreshold, upsertVmThreshold, deleteVmThreshold } from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import { isValidIp } from "../utils/validation";
 
@@ -22,6 +22,11 @@ function VMAssets() {
   const [blockSubmitting, setBlockSubmitting] = useState(false);
   const [blockSuccess, setBlockSuccess] = useState(null);
   const [blockError, setBlockError] = useState(null);
+
+  // Blocked IPs for selected VM
+  const [vmBlockedIps, setVmBlockedIps] = useState([]);
+  const [blockedLoading, setBlockedLoading] = useState(false);
+  const [unblocking, setUnblocking] = useState(null);
 
   // Per-VM threshold state
   const [thresholdData, setThresholdData] = useState(null);
@@ -61,14 +66,51 @@ function VMAssets() {
     }
   }, []);
 
+  // ---- Fetch blocked IPs for a specific VM ----
+  const fetchVmBlockedIps = useCallback(async (vmId) => {
+    setBlockedLoading(true);
+    try {
+      const allBlocked = await getBlockedIps();
+      const arr = Array.isArray(allBlocked) ? allBlocked : [];
+      // Show: per-VM blocks targeting this VM + global blocks
+      const filtered = arr.filter(
+        (b) => b.target_vm_id === vmId || b.scope === "global"
+      );
+      setVmBlockedIps(filtered);
+    } catch (err) {
+      console.error("Failed to fetch blocked IPs:", err);
+      setVmBlockedIps([]);
+    } finally {
+      setBlockedLoading(false);
+    }
+  }, []);
+
+  // ---- Unblock IP from VM detail ----
+  const handleUnblockFromDetail = async (ip) => {
+    if (!window.confirm(`Unblock ${ip}?`)) return;
+    setUnblocking(ip);
+    try {
+      await unblockIp(ip);
+      // Refresh blocked IPs list
+      if (selectedVM) fetchVmBlockedIps(selectedVM.vm_id);
+      // Refresh attack stats too (blocked count may change)
+      if (selectedVM) fetchVmDetail(selectedVM.vm_id);
+    } catch (err) {
+      console.error("Failed to unblock IP:", err);
+    } finally {
+      setUnblocking(null);
+    }
+  };
+
   useEffect(() => {
     fetchVMs();
   }, [fetchVMs]);
 
-  // When a VM is selected, fetch its attack details + threshold + reset forms
+  // When a VM is selected, fetch its attack details + threshold + blocked IPs + reset forms
   useEffect(() => {
     if (selectedVM) {
       fetchVmDetail(selectedVM.vm_id);
+      fetchVmBlockedIps(selectedVM.vm_id);
       setBlockForm({ ip: "", reason: "", duration: "120" });
       setBlockSuccess(null);
       setBlockError(null);
@@ -102,8 +144,9 @@ function VMAssets() {
     } else {
       setVmDetail(null);
       setThresholdData(null);
+      setVmBlockedIps([]);
     }
-  }, [selectedVM, fetchVmDetail]);
+  }, [selectedVM, fetchVmDetail, fetchVmBlockedIps]);
 
   // Auto-dismiss block success after 3s
   useEffect(() => {
@@ -189,8 +232,9 @@ function VMAssets() {
       await blockIpPerVm(ip, selectedVM.vm_id, blockForm.reason || "Manual per-VM block", duration);
       setBlockSuccess(`IP ${ip} blocked on ${selectedVM.vm_id}${duration === 0 ? " (permanent)" : ""}`);
       setBlockForm({ ip: "", reason: "", duration: "120" });
-      // Refresh detail stats
+      // Refresh detail stats and blocked IPs list
       fetchVmDetail(selectedVM.vm_id);
+      fetchVmBlockedIps(selectedVM.vm_id);
     } catch (err) {
       setBlockError(err.response?.data?.detail || err.response?.data?.message || "Failed to block IP");
     } finally {
@@ -431,6 +475,77 @@ function VMAssets() {
                   <div className="text-gray-400 text-sm">No attack data available.</div>
                 )}
               </div>
+            </div>
+
+            {/* Blocked IPs for this VM */}
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 mb-6">
+              <h4 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2">
+                <MdShield className="text-red-500" /> Blocked IPs Affecting this VM
+                <span className="text-xs font-normal text-gray-400 ml-auto">
+                  {vmBlockedIps.length} active {vmBlockedIps.length === 1 ? "block" : "blocks"}
+                </span>
+              </h4>
+
+              {blockedLoading ? (
+                <div className="text-gray-400 text-sm">Loading blocked IPs...</div>
+              ) : vmBlockedIps.length === 0 ? (
+                <div className="text-gray-400 text-sm">No active blocks for this VM.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="text-gray-500">
+                      <tr>
+                        <th className="p-2 text-left">IP Address</th>
+                        <th className="p-2 text-left">Scope</th>
+                        <th className="p-2 text-left">Reason</th>
+                        <th className="p-2 text-left">Blocked By</th>
+                        <th className="p-2 text-left">Blocked At</th>
+                        <th className="p-2 text-left">Expires</th>
+                        {isAdmin && <th className="p-2 text-left">Action</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {vmBlockedIps.map((b, i) => (
+                        <tr key={`${b.ip_address}-${b.scope}-${i}`} className="border-t border-gray-200">
+                          <td className="p-2 font-mono">{b.ip_address}</td>
+                          <td className="p-2">
+                            <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              b.scope === "per-vm"
+                                ? "bg-blue-100 text-blue-700"
+                                : "bg-gray-200 text-gray-600"
+                            }`}>
+                              {b.scope === "per-vm" ? "Per-VM" : "Global"}
+                            </span>
+                          </td>
+                          <td className="p-2 text-gray-600 max-w-[200px] truncate" title={b.reason || ""}>
+                            {b.reason || "\u2014"}
+                          </td>
+                          <td className="p-2 capitalize">{b.blocked_by || "\u2014"}</td>
+                          <td className="p-2">{formatTime(b.blocked_at)}</td>
+                          <td className="p-2">
+                            {b.block_expires ? formatTime(b.block_expires) : (
+                              <span className="text-red-600 font-semibold">Permanent</span>
+                            )}
+                          </td>
+                          {isAdmin && (
+                            <td className="p-2">
+                              <button
+                                onClick={() => handleUnblockFromDetail(b.ip_address)}
+                                disabled={unblocking === b.ip_address}
+                                className="inline-flex items-center gap-1 text-orange-600 hover:text-orange-800 font-semibold disabled:opacity-50"
+                                title="Unblock this IP"
+                              >
+                                <MdLockOpen className="text-sm" />
+                                {unblocking === b.ip_address ? "..." : "Unblock"}
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
             {/* Row 2: Threshold Config | Per-VM Block (admin only) */}
