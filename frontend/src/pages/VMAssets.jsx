@@ -1,10 +1,14 @@
 import { useEffect, useState, useCallback } from "react";
-import { MdAdd, MdRefresh, MdClose, MdCircle } from "react-icons/md";
+import { MdAdd, MdRefresh, MdClose, MdCircle, MdBlock } from "react-icons/md";
 import Sidebar from "../components/Sidebar";
 import StatCard from "../components/StatCard";
-import { getVMs, getVmAttacks, registerVm, deleteVm } from "../services/api";
+import { getVMs, getVmAttacks, registerVm, deleteVm, blockIpPerVm } from "../services/api";
+import { useAuth } from "../context/AuthContext";
+import { isValidIp } from "../utils/validation";
 
 function VMAssets() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [vms, setVms] = useState([]);
   const [selectedVM, setSelectedVM] = useState(null);
   const [vmDetail, setVmDetail] = useState(null);
@@ -12,6 +16,12 @@ function VMAssets() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [error, setError] = useState(null);
+
+  // Per-VM block form state
+  const [blockForm, setBlockForm] = useState({ ip: "", reason: "", duration: 120 });
+  const [blockSubmitting, setBlockSubmitting] = useState(false);
+  const [blockSuccess, setBlockSuccess] = useState(null);
+  const [blockError, setBlockError] = useState(null);
 
   // ---- Fetch VM list ----
   const fetchVMs = useCallback(async () => {
@@ -46,14 +56,49 @@ function VMAssets() {
     fetchVMs();
   }, [fetchVMs]);
 
-  // When a VM is selected, fetch its attack details
+  // When a VM is selected, fetch its attack details + reset block form
   useEffect(() => {
     if (selectedVM) {
       fetchVmDetail(selectedVM.vm_id);
+      setBlockForm({ ip: "", reason: "", duration: 120 });
+      setBlockSuccess(null);
+      setBlockError(null);
     } else {
       setVmDetail(null);
     }
   }, [selectedVM, fetchVmDetail]);
+
+  // Auto-dismiss block success after 3s
+  useEffect(() => {
+    if (blockSuccess) {
+      const t = setTimeout(() => setBlockSuccess(null), 3000);
+      return () => clearTimeout(t);
+    }
+  }, [blockSuccess]);
+
+  // ---- Block IP on specific VM ----
+  const handlePerVmBlock = async (e) => {
+    e.preventDefault();
+    setBlockError(null);
+    setBlockSuccess(null);
+    const ip = blockForm.ip.trim();
+    if (!isValidIp(ip)) {
+      setBlockError("Please enter a valid IPv4 or IPv6 address");
+      return;
+    }
+    setBlockSubmitting(true);
+    try {
+      await blockIpPerVm(ip, selectedVM.vm_id, blockForm.reason || "Manual per-VM block", blockForm.duration);
+      setBlockSuccess(`IP ${ip} blocked on ${selectedVM.vm_id}`);
+      setBlockForm({ ip: "", reason: "", duration: 120 });
+      // Refresh detail stats
+      fetchVmDetail(selectedVM.vm_id);
+    } catch (err) {
+      setBlockError(err.response?.data?.detail || err.response?.data?.message || "Failed to block IP");
+    } finally {
+      setBlockSubmitting(false);
+    }
+  };
 
   // ---- Deregister a VM (backend sets inactive, so update local state to match) ----
   const handleDeleteVm = async (vmId) => {
@@ -108,12 +153,14 @@ function VMAssets() {
             >
               <MdRefresh /> Refresh
             </button>
-            <button
-              onClick={() => setShowRegisterModal(true)}
-              className="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-lg font-bold flex items-center gap-2"
-            >
-              <MdAdd /> Register New VM
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => setShowRegisterModal(true)}
+                className="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-lg font-bold flex items-center gap-2"
+              >
+                <MdAdd /> Register New VM
+              </button>
+            )}
           </div>
         </div>
 
@@ -183,7 +230,7 @@ function VMAssets() {
                       </td>
                       <td className="p-4 text-xs">{formatTime(vm.last_seen)}</td>
                       <td className="p-4">
-                        {vm.status === "active" ? (
+                        {vm.status === "active" && isAdmin ? (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -193,6 +240,8 @@ function VMAssets() {
                           >
                             Deregister
                           </button>
+                        ) : vm.status === "active" ? (
+                          <span className="text-green-600 text-xs">Active</span>
                         ) : (
                           <span className="text-gray-400 text-xs">Inactive</span>
                         )}
@@ -277,6 +326,62 @@ function VMAssets() {
               ) : (
                 <div className="text-gray-400 text-sm">No attack data available.</div>
               )}
+
+              {/* Per-VM Block Form (admin only) */}
+              {isAdmin && selectedVM.status === "active" && (
+                <>
+                  <h4 className="text-sm font-bold text-gray-700 mb-3 border-t border-gray-200 pt-4 mt-4 flex items-center gap-2">
+                    <MdBlock className="text-red-500" /> Block IP on this VM
+                  </h4>
+
+                  {blockSuccess && (
+                    <div className="bg-green-50 border border-green-200 text-green-700 p-2 rounded-lg mb-3 text-xs">
+                      {blockSuccess}
+                    </div>
+                  )}
+                  {blockError && (
+                    <div className="bg-red-50 border border-red-200 text-red-700 p-2 rounded-lg mb-3 text-xs flex justify-between items-center">
+                      <span>{blockError}</span>
+                      <button onClick={() => setBlockError(null)} className="text-red-400 hover:text-red-600 font-bold ml-2 text-xs">×</button>
+                    </div>
+                  )}
+
+                  <form onSubmit={handlePerVmBlock} className="space-y-2">
+                    <input
+                      type="text"
+                      placeholder="IP Address"
+                      value={blockForm.ip}
+                      onChange={(e) => setBlockForm({ ...blockForm, ip: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+                      required
+                    />
+                    <input
+                      type="text"
+                      placeholder="Reason (optional)"
+                      value={blockForm.reason}
+                      onChange={(e) => setBlockForm({ ...blockForm, reason: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+                    />
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="number"
+                        min={1}
+                        value={blockForm.duration}
+                        onChange={(e) => setBlockForm({ ...blockForm, duration: parseInt(e.target.value) || 120 })}
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+                      />
+                      <span className="text-xs text-gray-400">min</span>
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={blockSubmitting}
+                      className="w-full bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white py-2 rounded-lg text-xs font-bold"
+                    >
+                      {blockSubmitting ? "Blocking..." : "Block on this VM"}
+                    </button>
+                  </form>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -311,6 +416,10 @@ function RegisterVmModal({ onClose, onRegistered }) {
     e.preventDefault();
     if (!vmId.trim() || !ipAddress.trim()) {
       setError("VM ID and IP Address are required.");
+      return;
+    }
+    if (!isValidIp(ipAddress.trim())) {
+      setError("Please enter a valid IPv4 or IPv6 address.");
       return;
     }
     setSubmitting(true);

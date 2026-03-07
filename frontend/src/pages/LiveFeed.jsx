@@ -12,7 +12,8 @@ function LiveFeed() {
   const [error, setError] = useState(null);
   const [filter, setFilter] = useState("");
   const sourceRef = useRef(null);
-  const bufferRef = useRef([]); // buffer events while paused
+  const bufferRef = useRef(null); // null = not paused, [] = paused
+  const checkOpenRef = useRef(null); // track interval for cleanup
 
   // ---- SSE connection ----
   const connect = useCallback(() => {
@@ -51,17 +52,24 @@ function LiveFeed() {
         setConnected(true);
         setError(null);
         clearInterval(checkOpen);
+        checkOpenRef.current = null;
       } else if (source.readyState === EventSource.CLOSED) {
         clearInterval(checkOpen);
+        checkOpenRef.current = null;
       }
     }, 500);
 
+    checkOpenRef.current = checkOpen;
     sourceRef.current = source;
   }, []);
 
   useEffect(() => {
     connect();
     return () => {
+      if (checkOpenRef.current) {
+        clearInterval(checkOpenRef.current);
+        checkOpenRef.current = null;
+      }
       if (sourceRef.current) {
         sourceRef.current.close();
       }

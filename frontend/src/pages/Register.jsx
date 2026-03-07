@@ -96,7 +96,7 @@ function Register() {
               <MdSecurity className="text-red-600 text-3xl" />
             </div>
 
-            <h2 className="text-3xl font-bold">Admin Registration</h2>
+            <h2 className="text-3xl font-bold">Create Account</h2>
 
             <p className="text-gray-500 text-sm mt-2">
               Initialize your secure SOC management profile

@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -15,15 +16,18 @@ public class SecurityMonitorController : ControllerBase
     private readonly SecurityMonitorContext _db;
     private readonly SecurityMonitorService _service;
     private readonly EventBroadcastService _broadcast;
+    private readonly ILogger<SecurityMonitorController> _logger;
 
     public SecurityMonitorController(
         SecurityMonitorContext db,
         SecurityMonitorService service,
-        EventBroadcastService broadcast)
+        EventBroadcastService broadcast,
+        ILogger<SecurityMonitorController> logger)
     {
         _db = db;
         _service = service;
         _broadcast = broadcast;
+        _logger = logger;
     }
 
     /// <summary>
@@ -112,7 +116,8 @@ public class SecurityMonitorController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { detail = ex.Message });
+            _logger.LogError(ex, "Failed to process incoming events");
+            return StatusCode(500, new { detail = "Failed to process events" });
         }
     }
 
@@ -129,7 +134,8 @@ public class SecurityMonitorController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { detail = ex.Message });
+            _logger.LogError(ex, "Failed to fetch suspicious IPs");
+            return StatusCode(500, new { detail = "Failed to fetch suspicious IPs" });
         }
     }
 
@@ -142,14 +148,16 @@ public class SecurityMonitorController : ControllerBase
         try
         {
             var results = await _db.BlockedIPs
-                .Where(b => b.IsActive)
+                .Where(b => b.IsActive && (b.BlockExpires == null || b.BlockExpires > DateTime.Now))
                 .Select(b => new BlockedIpDto
                 {
                     IpAddress = b.IpAddress,
                     BlockedAt = b.BlockedAt,
                     BlockExpires = b.BlockExpires,
                     Reason = b.Reason,
-                    BlockedBy = b.BlockedBy
+                    BlockedBy = b.BlockedBy,
+                    Scope = b.Scope,
+                    TargetVmId = b.TargetVmId
                 })
                 .ToListAsync();
 
@@ -157,7 +165,8 @@ public class SecurityMonitorController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { detail = ex.Message });
+            _logger.LogError(ex, "Failed to fetch blocked IPs");
+            return StatusCode(500, new { detail = "Failed to fetch blocked IPs" });
         }
     }
 
@@ -165,8 +174,12 @@ public class SecurityMonitorController : ControllerBase
     // POST /api/v1/block
     // =========================================================================
     [HttpPost("api/v1/block")]
+    [Authorize(Roles = "admin")]
     public async Task<IActionResult> BlockIp([FromBody] ManualBlockRequest req)
     {
+        if (!IPAddress.TryParse(req.IpAddress, out _))
+            return BadRequest(new { detail = "Invalid IP address format" });
+
         try
         {
             await _service.BlockIpAsync(req.IpAddress, req.Reason, req.DurationMinutes, "manual");
@@ -176,9 +189,14 @@ public class SecurityMonitorController : ControllerBase
                 Message = $"IP {req.IpAddress} blocked for {req.DurationMinutes} minutes"
             });
         }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { detail = ex.Message });
+        }
         catch (Exception ex)
         {
-            return StatusCode(500, new { detail = ex.Message });
+            _logger.LogError(ex, "Failed to block IP {IpAddress}", req.IpAddress);
+            return StatusCode(500, new { detail = "Failed to block IP" });
         }
     }
 
@@ -186,8 +204,12 @@ public class SecurityMonitorController : ControllerBase
     // POST /api/v1/block/per-vm
     // =========================================================================
     [HttpPost("api/v1/block/per-vm")]
+    [Authorize(Roles = "admin")]
     public async Task<IActionResult> BlockIpPerVm([FromBody] PerVmBlockRequest req)
     {
+        if (!IPAddress.TryParse(req.IpAddress, out _))
+            return BadRequest(new { detail = "Invalid IP address format" });
+
         try
         {
             await _service.BlockIpPerVmAsync(req.IpAddress, req.VmId, req.Reason, req.DurationMinutes, "manual");
@@ -197,9 +219,14 @@ public class SecurityMonitorController : ControllerBase
                 Message = $"IP {req.IpAddress} blocked on VM {req.VmId} for {req.DurationMinutes} minutes"
             });
         }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { detail = ex.Message });
+        }
         catch (Exception ex)
         {
-            return StatusCode(500, new { detail = ex.Message });
+            _logger.LogError(ex, "Failed to block IP {IpAddress} on VM {VmId}", req.IpAddress, req.VmId);
+            return StatusCode(500, new { detail = "Failed to block IP" });
         }
     }
 
@@ -207,6 +234,7 @@ public class SecurityMonitorController : ControllerBase
     // DELETE /api/v1/block/{ip}
     // =========================================================================
     [HttpDelete("api/v1/block/{ip}")]
+    [Authorize(Roles = "admin")]
     public async Task<IActionResult> UnblockIp(string ip)
     {
         try
@@ -241,7 +269,8 @@ public class SecurityMonitorController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { detail = ex.Message });
+            _logger.LogError(ex, "Failed to unblock IP {IpAddress}", ip);
+            return StatusCode(500, new { detail = "Failed to unblock IP" });
         }
     }
 
@@ -249,6 +278,7 @@ public class SecurityMonitorController : ControllerBase
     // POST /api/v1/vms
     // =========================================================================
     [HttpPost("api/v1/vms")]
+    [Authorize(Roles = "admin")]
     public async Task<IActionResult> RegisterVm([FromBody] RegisterVmRequest req)
     {
         try
@@ -262,7 +292,8 @@ public class SecurityMonitorController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { detail = ex.Message });
+            _logger.LogError(ex, "Failed to register VM {VmId}", req.VmId);
+            return StatusCode(500, new { detail = "Failed to register VM" });
         }
     }
 
@@ -290,7 +321,8 @@ public class SecurityMonitorController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { detail = ex.Message });
+            _logger.LogError(ex, "Failed to list VMs");
+            return StatusCode(500, new { detail = "Failed to list VMs" });
         }
     }
 
@@ -298,6 +330,7 @@ public class SecurityMonitorController : ControllerBase
     // DELETE /api/v1/vms/{vm_id}
     // =========================================================================
     [HttpDelete("api/v1/vms/{vmId}")]
+    [Authorize(Roles = "admin")]
     public async Task<IActionResult> DeleteVm(string vmId)
     {
         try
@@ -317,7 +350,8 @@ public class SecurityMonitorController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { detail = ex.Message });
+            _logger.LogError(ex, "Failed to delete VM {VmId}", vmId);
+            return StatusCode(500, new { detail = "Failed to delete VM" });
         }
     }
 
@@ -334,7 +368,8 @@ public class SecurityMonitorController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { detail = ex.Message });
+            _logger.LogError(ex, "Failed to get VM attacks for {VmId}", vmId);
+            return StatusCode(500, new { detail = "Failed to get VM attacks" });
         }
     }
 
@@ -429,7 +464,8 @@ public class SecurityMonitorController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { detail = ex.Message });
+            _logger.LogError(ex, "Failed to get statistics");
+            return StatusCode(500, new { detail = "Failed to get statistics" });
         }
     }
 
@@ -446,7 +482,8 @@ public class SecurityMonitorController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { detail = ex.Message });
+            _logger.LogError(ex, "Failed to get global statistics");
+            return StatusCode(500, new { detail = "Failed to get global statistics" });
         }
     }
 

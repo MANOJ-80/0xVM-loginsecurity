@@ -2,23 +2,12 @@ import { useEffect, useState } from "react";
 import Sidebar from "../components/Sidebar";
 import StatCard from "../components/StatCard";
 import { getBlockedIps, unblockIp, blockIp } from "../services/api";
-
-// Simple IPv4/IPv6 validation
-function isValidIp(ip) {
-  // IPv4
-  const ipv4 = /^(\d{1,3}\.){3}\d{1,3}$/;
-  if (ipv4.test(ip)) {
-    return ip.split(".").every((octet) => {
-      const n = parseInt(octet, 10);
-      return n >= 0 && n <= 255;
-    });
-  }
-  // IPv6 (loose check)
-  const ipv6 = /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/;
-  return ipv6.test(ip);
-}
+import { useAuth } from "../context/AuthContext";
+import { isValidIp } from "../utils/validation";
 
 function BlockedIPs() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [ips, setIps] = useState([]);
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [blockForm, setBlockForm] = useState({
@@ -31,6 +20,7 @@ function BlockedIPs() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [blockError, setBlockError] = useState(null);
+  const [blockSubmitting, setBlockSubmitting] = useState(false);
 
   const fetchBlockedIps = async () => {
     try {
@@ -85,6 +75,7 @@ function BlockedIPs() {
       return;
     }
 
+    setBlockSubmitting(true);
     try {
       await blockIp(
         blockForm.ip_address.trim(),
@@ -101,6 +92,8 @@ function BlockedIPs() {
         "Failed to block IP: " +
           (err.response?.data?.detail || err.message)
       );
+    } finally {
+      setBlockSubmitting(false);
     }
   };
 
@@ -128,12 +121,14 @@ function BlockedIPs() {
               Real-time repository of restricted network entities
             </p>
           </div>
-          <button
-            onClick={() => { setShowBlockModal(true); setBlockError(null); }}
-            className="bg-red-600 hover:bg-red-700 px-5 py-2 rounded text-white font-bold"
-          >
-            Manual Block
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => { setShowBlockModal(true); setBlockError(null); }}
+              className="bg-red-600 hover:bg-red-700 px-5 py-2 rounded text-white font-bold"
+            >
+              Manual Block
+            </button>
+          )}
         </div>
 
         {/* FEEDBACK BANNERS */}
@@ -189,9 +184,9 @@ function BlockedIPs() {
                     </td>
                   </tr>
                 ) : (
-                  ips.map((ip, index) => (
+                  ips.map((ip) => (
                     <tr
-                      key={index}
+                      key={ip.ip_address + '-' + ip.blocked_at}
                       className="border-t border-gray-200 hover:bg-gray-50"
                     >
                       <td className="p-5 font-mono text-red-600">
@@ -226,15 +221,19 @@ function BlockedIPs() {
                         </span>
                       </td>
                       <td className="p-5 text-right">
-                        <button
-                          onClick={() => handleUnblock(ip.ip_address)}
-                          disabled={unblocking === ip.ip_address}
-                          className="border border-gray-300 px-4 py-1 rounded hover:bg-red-600 hover:text-white disabled:opacity-50"
-                        >
-                          {unblocking === ip.ip_address
-                            ? "Unblocking..."
-                            : "Unblock"}
-                        </button>
+                        {isAdmin ? (
+                          <button
+                            onClick={() => handleUnblock(ip.ip_address)}
+                            disabled={unblocking === ip.ip_address}
+                            className="border border-gray-300 px-4 py-1 rounded hover:bg-red-600 hover:text-white disabled:opacity-50"
+                          >
+                            {unblocking === ip.ip_address
+                              ? "Unblocking..."
+                              : "Unblock"}
+                          </button>
+                        ) : (
+                          <span className="text-gray-400 text-xs">View only</span>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -304,14 +303,16 @@ function BlockedIPs() {
                     type="button"
                     onClick={() => setShowBlockModal(false)}
                     className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100"
+                    disabled={blockSubmitting}
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold"
+                    disabled={blockSubmitting}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white rounded-lg font-bold"
                   >
-                    Block
+                    {blockSubmitting ? "Blocking..." : "Block"}
                   </button>
                 </div>
               </form>

@@ -1,8 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Sidebar from "../components/Sidebar";
 import { getSuspiciousIps, blockIp } from "../services/api";
+import { useAuth } from "../context/AuthContext";
 
 function SuspiciousIPs() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [ips, setIps] = useState([]);
   const [search, setSearch] = useState("");
   const [blocking, setBlocking] = useState(null);
@@ -10,24 +13,25 @@ function SuspiciousIPs() {
   const [error, setError] = useState(null);
   const [confirmBlock, setConfirmBlock] = useState(null); // IP awaiting confirmation
 
-  const fetchIps = async () => {
+  const fetchIps = useCallback(async () => {
     try {
       setError(null);
       const data = await getSuspiciousIps(3);
       setIps(data || []);
+      setConfirmBlock(null); // reset stale confirmation on refresh
     } catch (err) {
       console.error("Failed to load suspicious IPs:", err);
       setError("Failed to load suspicious IPs");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchIps();
     const id = setInterval(fetchIps, 30000);
     return () => clearInterval(id);
-  }, []);
+  }, [fetchIps]);
 
   const handleBlock = async (ipAddress) => {
     setBlocking(ipAddress);
@@ -124,9 +128,9 @@ function SuspiciousIPs() {
                     </td>
                   </tr>
                 ) : (
-                  filtered.map((ip, index) => (
+                  filtered.map((ip) => (
                     <tr
-                      key={index}
+                      key={ip.ip_address}
                       className="border-t border-gray-200 hover:bg-gray-50"
                     >
                       <td className="p-4 font-mono text-red-600">
@@ -151,7 +155,9 @@ function SuspiciousIPs() {
                         </span>
                       </td>
                       <td className="p-4 text-right">
-                        {confirmBlock === ip.ip_address ? (
+                        {!isAdmin ? (
+                          <span className="text-gray-400 text-xs">View only</span>
+                        ) : confirmBlock === ip.ip_address ? (
                           <span className="inline-flex gap-2 items-center">
                             <span className="text-xs text-gray-500">Confirm?</span>
                             <button

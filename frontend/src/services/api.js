@@ -62,6 +62,9 @@ export const getCurrentUser = (token) =>
 export const getGlobalStatistics = () =>
   API.get("/statistics/global").then(unwrap);
 
+export const getStatistics = () =>
+  API.get("/statistics").then(unwrap);
+
 // ---- Suspicious IPs ----
 export const getSuspiciousIps = (threshold = 5) =>
   API.get(`/suspicious-ips?threshold=${threshold}`).then(unwrap);

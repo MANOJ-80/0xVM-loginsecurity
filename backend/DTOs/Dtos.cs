@@ -139,6 +139,8 @@ public class BlockedIpDto
     public DateTime? BlockExpires { get; set; }
     public string? Reason { get; set; }
     public string? BlockedBy { get; set; }
+    public string Scope { get; set; } = "global";
+    public string? TargetVmId { get; set; }
 }
 
 public class SuspiciousIpDto

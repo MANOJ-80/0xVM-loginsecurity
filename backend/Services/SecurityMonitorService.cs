@@ -61,17 +61,23 @@ public class SecurityMonitorService
 
     private async Task<bool> IsIpAlreadyBlockedAsync(string ipAddress, string? targetVmId = null)
     {
-        // Check committed DB rows
+        var now = DateTime.Now;
+
+        // Check committed DB rows — must be active AND not expired
         bool dbBlocked;
         if (string.IsNullOrEmpty(targetVmId))
         {
-            dbBlocked = await _db.BlockedIPs.AnyAsync(b => b.IpAddress == ipAddress && b.IsActive);
+            dbBlocked = await _db.BlockedIPs.AnyAsync(b =>
+                b.IpAddress == ipAddress &&
+                b.IsActive &&
+                (b.BlockExpires == null || b.BlockExpires > now));
         }
         else
         {
             dbBlocked = await _db.BlockedIPs.AnyAsync(b => 
                 b.IpAddress == ipAddress && 
                 b.IsActive && 
+                (b.BlockExpires == null || b.BlockExpires > now) &&
                 (b.Scope == "global" || b.TargetVmId == targetVmId));
         }
 
@@ -84,6 +90,7 @@ public class SecurityMonitorService
             .Any(e => e.State == EntityState.Added
                    && e.Entity.IpAddress == ipAddress
                    && e.Entity.IsActive
+                   && (e.Entity.BlockExpires == null || e.Entity.BlockExpires > now)
                    && (string.IsNullOrEmpty(targetVmId) 
                        || e.Entity.Scope == "global" 
                        || e.Entity.TargetVmId == targetVmId));
@@ -145,7 +152,7 @@ public class SecurityMonitorService
     {
         var ts = eventTimestamp ?? DateTime.Now;
 
-        // Dedup: skip if this exact event was already recorded
+        // Dedup: skip if this exact event was already recorded (check DB + change tracker)
         var exists = await _db.FailedLoginAttempts.AnyAsync(f =>
             f.IpAddress == ipAddress &&
             f.Username == username &&
@@ -154,6 +161,18 @@ public class SecurityMonitorService
             f.SourceVmId == sourceVmId);
 
         if (exists)
+            return;
+
+        // Also check staged (uncommitted) entities in the same batch
+        var stagedExists = _db.ChangeTracker.Entries<FailedLoginAttempt>()
+            .Any(e => e.State == EntityState.Added
+                   && e.Entity.IpAddress == ipAddress
+                   && e.Entity.Username == username
+                   && e.Entity.SourcePort == sourcePort
+                   && e.Entity.Timestamp == ts
+                   && e.Entity.SourceVmId == sourceVmId);
+
+        if (stagedExists)
             return;
 
         // Insert the failed login attempt
@@ -193,7 +212,7 @@ public class SecurityMonitorService
         }
         else
         {
-            var newSuspicious = new SuspiciousIp
+            suspicious = new SuspiciousIp
             {
                 IpAddress = ipAddress,
                 FailedAttempts = 1,
@@ -203,7 +222,7 @@ public class SecurityMonitorService
                     ? System.Text.Json.JsonSerializer.Serialize(new List<string> { username }) 
                     : null
             };
-            _db.SuspiciousIPs.Add(newSuspicious);
+            _db.SuspiciousIPs.Add(suspicious);
         }
 
         // Touch VMSources.last_seen so we know the agent is alive
@@ -219,29 +238,25 @@ public class SecurityMonitorService
         // ========================================================
         // THRESHOLD DETECTION & AUTO-BLOCK LOGIC (Tasks 1, 2, 2b)
         // ========================================================
-        await CheckThresholdAndAutoBlockAsync(ipAddress, sourceVmId);
+        await CheckThresholdAndAutoBlockAsync(ipAddress, sourceVmId, suspicious);
     }
 
     /// <summary>
     /// Check if IP exceeds threshold and auto-block if needed.
     /// Returns true if IP was blocked.
     /// </summary>
-    private async Task<bool> CheckThresholdAndAutoBlockAsync(string ipAddress, string? sourceVmId)
+    private async Task<bool> CheckThresholdAndAutoBlockAsync(string ipAddress, string? sourceVmId, SuspiciousIp? suspiciousEntity)
     {
-        // Check if auto-block is enabled
-        var autoBlockEnabled = await IsAutoBlockEnabledAsync();
+        // Get threshold settings (per-VM if available, otherwise global).
+        // This already contains the correct auto-block enabled flag — either
+        // per-VM override or the global ENABLE_AUTO_BLOCK setting.
+        var (threshold, timeWindow, blockDuration, autoBlockEnabled) = await GetThresholdSettingsAsync(sourceVmId);
+        
         if (!autoBlockEnabled)
             return false;
 
         // Check if already blocked
         if (await IsIpAlreadyBlockedAsync(ipAddress, sourceVmId))
-            return false;
-
-        // Get threshold settings (global or per-VM)
-        var (threshold, timeWindow, blockDuration, vmAutoBlockEnabled) = await GetThresholdSettingsAsync(sourceVmId);
-        
-        // Check if per-VM auto-block is disabled
-        if (!vmAutoBlockEnabled)
             return false;
 
         // Count attempts within time window.
@@ -291,11 +306,18 @@ public class SecurityMonitorService
                 });
             }
 
-            // Update suspicious IP status
-            var suspicious = await _db.SuspiciousIPs.FirstOrDefaultAsync(s => s.IpAddress == ipAddress);
-            if (suspicious != null)
+            // Update suspicious IP status — use passed entity to avoid double-fetch
+            if (suspiciousEntity != null)
             {
-                suspicious.Status = "blocked";
+                suspiciousEntity.Status = "blocked";
+            }
+            else
+            {
+                var suspicious = await _db.SuspiciousIPs.FirstOrDefaultAsync(s => s.IpAddress == ipAddress);
+                if (suspicious != null)
+                {
+                    suspicious.Status = "blocked";
+                }
             }
 
             return true;
@@ -328,6 +350,10 @@ public class SecurityMonitorService
     // =========================================================================
     public async Task BlockIpAsync(string ipAddress, string reason, int durationMinutes, string blockedBy = "manual")
     {
+        // Prevent duplicate blocks — check if already actively blocked (and not expired)
+        if (await IsIpAlreadyBlockedAsync(ipAddress))
+            throw new InvalidOperationException($"IP {ipAddress} is already blocked");
+
         _db.BlockedIPs.Add(new BlockedIp
         {
             IpAddress = ipAddress,
@@ -351,6 +377,10 @@ public class SecurityMonitorService
     // =========================================================================
     public async Task BlockIpPerVmAsync(string ipAddress, string targetVmId, string reason, int durationMinutes, string blockedBy = "manual")
     {
+        // Prevent duplicate blocks — check if already actively blocked for this VM (or globally)
+        if (await IsIpAlreadyBlockedAsync(ipAddress, targetVmId))
+            throw new InvalidOperationException($"IP {ipAddress} is already blocked on VM {targetVmId}");
+
         _db.BlockedIPs.Add(new BlockedIp
         {
             IpAddress = ipAddress,
@@ -433,6 +463,7 @@ public class SecurityMonitorService
 
         var blockedCount = await _db.BlockedIPs
             .CountAsync(b => b.IsActive &&
+                (b.BlockExpires == null || b.BlockExpires > DateTime.Now) &&
                 (b.Scope == "global" || (b.Scope == "per-vm" && b.TargetVmId == vmId)));
 
         if (stats == null)
@@ -465,7 +496,8 @@ public class SecurityMonitorService
         var totalFailed = await _db.FailedLoginAttempts.CountAsync();
         var uniqueAttackers = await _db.FailedLoginAttempts
             .Select(f => f.IpAddress).Distinct().CountAsync();
-        var blockedIps = await _db.BlockedIPs.CountAsync(b => b.IsActive);
+        var blockedIps = await _db.BlockedIPs
+            .CountAsync(b => b.IsActive && (b.BlockExpires == null || b.BlockExpires > DateTime.Now));
 
         var now = DateTime.Now;
         var last24h = now.AddHours(-24);
@@ -522,7 +554,8 @@ public class SecurityMonitorService
         var totalFailed = await _db.FailedLoginAttempts.CountAsync();
         var uniqueAttackers = await _db.FailedLoginAttempts
             .Select(f => f.IpAddress).Distinct().CountAsync();
-        var blockedIps = await _db.BlockedIPs.CountAsync(b => b.IsActive);
+        var blockedIps = await _db.BlockedIPs
+            .CountAsync(b => b.IsActive && (b.BlockExpires == null || b.BlockExpires > DateTime.Now));
 
         var activeVms = await _db.VMSources.CountAsync(v => v.Status == "active");
         var inactiveVms = await _db.VMSources.CountAsync(v => v.Status == "inactive");

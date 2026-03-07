@@ -7,6 +7,7 @@ import Dashboard from "./pages/Dashboard";
 import SuspiciousIPs from "./pages/SuspiciousIPs";
 import BlockedIPs from "./pages/BlockedIPs";
 import VMAssets from "./pages/VMAssets";
+import VMStats from "./pages/VMStats";
 import LiveFeed from "./pages/LiveFeed";
 
 function App() {
@@ -23,6 +24,7 @@ function App() {
           <Route path="/suspicious" element={<ProtectedRoute><SuspiciousIPs /></ProtectedRoute>} />
           <Route path="/registry" element={<ProtectedRoute><BlockedIPs /></ProtectedRoute>} />
           <Route path="/assets" element={<ProtectedRoute><VMAssets /></ProtectedRoute>} />
+          <Route path="/vm-stats" element={<ProtectedRoute><VMStats /></ProtectedRoute>} />
           <Route path="/live-feed" element={<ProtectedRoute><LiveFeed /></ProtectedRoute>} />
 
           {/* 404 catch-all */}

@@ -1,6 +1,6 @@
 import { useNavigate, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { MdDashboard, MdWarning, MdBlock, MdDns, MdRssFeed, MdLogout, MdCircle } from "react-icons/md";
+import { MdDashboard, MdWarning, MdBlock, MdDns, MdRssFeed, MdLogout, MdCircle, MdBarChart } from "react-icons/md";
 import { useAuth } from "../context/AuthContext";
 import { getHealth } from "../services/api";
 
@@ -9,6 +9,7 @@ const navItems = [
   { path: "/suspicious", icon: MdWarning, label: "Suspicious IPs" },
   { path: "/registry", icon: MdBlock, label: "Blocked IPs" },
   { path: "/assets", icon: MdDns, label: "VM Monitoring" },
+  { path: "/vm-stats", icon: MdBarChart, label: "VM Analytics" },
   { path: "/live-feed", icon: MdRssFeed, label: "Live Feed" },
 ];
 

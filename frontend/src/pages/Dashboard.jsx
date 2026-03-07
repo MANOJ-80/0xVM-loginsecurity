@@ -88,8 +88,8 @@ function Dashboard() {
               </div>
             )}
 
-            {/* Stats Row 1 */}
-            <div className="grid grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+            {/* Stats Row */}
+            <div className="grid grid-cols-3 lg:grid-cols-7 gap-4 mb-8">
               <StatCard
                 title="Total Failed Attempts"
                 value={stats.total_failed_attempts}
@@ -106,12 +106,8 @@ function Dashboard() {
                 value={stats.attacks_last_24h}
                 color="text-red-600"
               />
-            </div>
-
-            {/* Stats Row 2 — smaller accent stat */}
-            <div className="grid grid-cols-1 gap-4 mb-8">
               <StatCard
-                title="Attacks Last Hour"
+                title="Attacks (1h)"
                 value={stats.attacks_last_hour}
               />
             </div>
