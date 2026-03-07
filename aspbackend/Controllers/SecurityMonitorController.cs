@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SecurityMonitorApi.Data;
@@ -8,6 +9,7 @@ using SecurityMonitorApi.Services;
 namespace SecurityMonitorApi.Controllers;
 
 [ApiController]
+[Authorize]
 public class SecurityMonitorController : ControllerBase
 {
     private readonly SecurityMonitorContext _db;
@@ -37,6 +39,7 @@ public class SecurityMonitorController : ControllerBase
     // =========================================================================
     // GET /api/v1/health
     // =========================================================================
+    [AllowAnonymous]
     [HttpGet("api/v1/health")]
     public async Task<IActionResult> HealthCheck()
     {
@@ -67,6 +70,7 @@ public class SecurityMonitorController : ControllerBase
     // =========================================================================
     // POST /api/v1/events
     // =========================================================================
+    [AllowAnonymous]
     [HttpPost("api/v1/events")]
     public async Task<IActionResult> ReceiveEvents([FromBody] ReceiveEventsRequest req)
     {
@@ -337,6 +341,7 @@ public class SecurityMonitorController : ControllerBase
     // =========================================================================
     // GET /api/v1/feed  (Server-Sent Events)
     // =========================================================================
+    [AllowAnonymous]
     [HttpGet("api/v1/feed")]
     public async Task Feed(CancellationToken cancellationToken)
     {

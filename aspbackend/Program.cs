@@ -1,6 +1,9 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using SecurityMonitorApi.Data;
 using SecurityMonitorApi.Services;
 
@@ -14,6 +17,32 @@ builder.Services.AddDbContext<SecurityMonitorContext>(options =>
 // ---- Services ----
 builder.Services.AddScoped<SecurityMonitorService>();
 builder.Services.AddSingleton<EventBroadcastService>();
+
+// ---- JWT Authentication ----
+var jwtSettings = builder.Configuration.GetSection("Jwt");
+var jwtKey = Encoding.UTF8.GetBytes(jwtSettings["Key"]!);
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = jwtSettings["Issuer"],
+        ValidAudience = jwtSettings["Audience"],
+        IssuerSigningKey = new SymmetricSecurityKey(jwtKey),
+        ClockSkew = TimeSpan.FromMinutes(1),
+    };
+});
+
+builder.Services.AddAuthorization();
 
 // ---- Controllers + JSON options ----
 builder.Services.AddControllers()
@@ -39,6 +68,8 @@ var app = builder.Build();
 
 // ---- Middleware pipeline ----
 app.UseCors();
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapControllers();
 

@@ -166,3 +166,52 @@ public class ListResponse<T>
     public List<T> Data { get; set; } = new();
     public int Count { get; set; }
 }
+
+// ---- Auth DTOs ----
+
+public class LoginRequest
+{
+    public string Email { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+}
+
+public class RegisterRequest
+{
+    public string Username { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+}
+
+public class AuthResponse
+{
+    public bool Success { get; set; }
+    public string? Token { get; set; }
+    public UserDto? User { get; set; }
+    public string? Message { get; set; }
+}
+
+public class UserDto
+{
+    public int Id { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string Role { get; set; } = string.Empty;
+}
+
+// ---- PerVMThreshold DTOs ----
+
+public class PerVmThresholdDto
+{
+    public string VmId { get; set; } = string.Empty;
+    public int Threshold { get; set; } = 5;
+    public int TimeWindowMinutes { get; set; } = 5;
+    public int BlockDurationMinutes { get; set; } = 60;
+    public bool AutoBlockEnabled { get; set; } = true;
+}
+
+public class PerVmThresholdResponse
+{
+    public bool Success { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public PerVmThresholdDto? Data { get; set; }
+}

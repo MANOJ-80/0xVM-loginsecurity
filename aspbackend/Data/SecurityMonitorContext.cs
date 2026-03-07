@@ -17,6 +17,7 @@ public class SecurityMonitorContext : DbContext
     public DbSet<VmSource> VMSources => Set<VmSource>();
     public DbSet<PerVmThreshold> PerVMThresholds => Set<PerVmThreshold>();
     public DbSet<AttackStatistic> AttackStatistics => Set<AttackStatistic>();
+    public DbSet<User> Users => Set<User>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -323,6 +324,54 @@ public class SecurityMonitorContext : DbContext
                 .WithOne(v => v.PerVmThreshold)
                 .HasForeignKey<PerVmThreshold>(e => e.VmId)
                 .HasPrincipalKey<VmSource>(v => v.VmId);
+        });
+
+        // =============================================
+        // Users
+        // =============================================
+        modelBuilder.Entity<User>(entity =>
+        {
+            entity.ToTable("Users");
+
+            entity.Property(e => e.Username)
+                .HasColumnName("username")
+                .HasMaxLength(100)
+                .IsRequired();
+
+            entity.Property(e => e.Email)
+                .HasColumnName("email")
+                .HasMaxLength(256)
+                .IsRequired();
+
+            entity.HasIndex(e => e.Email)
+                .IsUnique()
+                .HasDatabaseName("idx_users_email");
+
+            entity.HasIndex(e => e.Username)
+                .IsUnique()
+                .HasDatabaseName("idx_users_username");
+
+            entity.Property(e => e.PasswordHash)
+                .HasColumnName("password_hash")
+                .IsRequired();
+
+            entity.Property(e => e.Role)
+                .HasColumnName("role")
+                .HasMaxLength(20)
+                .HasDefaultValue("analyst");
+
+            entity.Property(e => e.CreatedAt)
+                .HasColumnName("created_at")
+                .HasColumnType("datetime2")
+                .HasDefaultValueSql("GETUTCDATE()");
+
+            entity.Property(e => e.LastLogin)
+                .HasColumnName("last_login")
+                .HasColumnType("datetime2");
+
+            entity.Property(e => e.IsActive)
+                .HasColumnName("is_active")
+                .HasDefaultValue(true);
         });
 
         // =============================================
