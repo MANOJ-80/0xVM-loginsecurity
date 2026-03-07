@@ -293,6 +293,7 @@ FailedLoginAttempts
 PerVMThresholds
 Settings
 SuspiciousIPs
+Users
 VMSources
 ```
 
@@ -401,13 +402,16 @@ The production build outputs static files to `frontend/dist/`. These can be serv
 
 ### Frontend Pages
 
-| Route             | Page             | Description                                                        |
-| ----------------- | ---------------- | ------------------------------------------------------------------ |
-| `/`               | Dashboard        | Stat cards, hourly attack chart, username pie chart, live SSE feed |
-| `/suspicious-ips` | Suspicious IPs   | Filterable table with threshold control                            |
-| `/blocked-ips`    | Blocked IPs      | Block/unblock IPs with modal form                                  |
-| `/vms`            | Virtual Machines | Register/remove VMs, view per-VM attack stats                      |
-| `/live-feed`      | Live Feed        | Real-time SSE event stream with pause/resume                       |
+| Route             | Page             | Description                                                                          |
+| ----------------- | ---------------- | ------------------------------------------------------------------------------------ |
+| `/login`          | Login            | JWT login form                                                                       |
+| `/register`       | Register         | User registration form                                                               |
+| `/`               | Dashboard        | Stat cards, hourly attack chart, username pie chart, live SSE feed                   |
+| `/suspicious-ips` | Suspicious IPs   | Filterable table with risk levels, status filter tabs, threshold control              |
+| `/blocked-ips`    | Blocked IPs      | Block/unblock IPs with modal form, duration presets, scope display                   |
+| `/vms`            | VM Assets        | Register/remove VMs, per-VM attack stats, blocked IPs table, threshold configuration |
+| `/vm-stats`       | VM Stats         | VM statistics view                                                                   |
+| `/live-feed`      | Live Feed        | Real-time SSE event stream with pause/resume                                         |
 
 ### Frontend File Structure
 
@@ -424,15 +428,21 @@ frontend/
     ├── services/
     │   └── api.js                       # All API calls + SSE subscription
     ├── context/
+    │   ├── AuthContext.jsx              # JWT auth state management
     │   └── ToastContext.jsx             # Toast notification system
     ├── components/
-    │   ├── Layout.jsx                   # Sidebar + content layout
-    │   └── Sidebar.jsx                  # Navigation + health indicator
+    │   ├── Sidebar.jsx                  # Navigation + health indicator
+    │   ├── StatCard.jsx                 # Reusable stat card component
+    │   ├── AttackFeed.jsx               # Real-time attack feed component
+    │   └── ProtectedRoute.jsx           # Route guard (redirects to login)
     └── pages/
+        ├── Login.jsx                    # Login page
+        ├── Register.jsx                 # Registration page
         ├── Dashboard.jsx                # Main dashboard with charts
-        ├── SuspiciousIps.jsx            # Suspicious IPs table
-        ├── BlockedIps.jsx               # Blocked IPs management
-        ├── VirtualMachines.jsx          # VM management
+        ├── SuspiciousIPs.jsx            # Suspicious IPs table with filters
+        ├── BlockedIPs.jsx               # Blocked IPs management
+        ├── VMAssets.jsx                 # VM management + per-VM detail panel
+        ├── VMStats.jsx                  # VM statistics view
         └── LiveFeed.jsx                 # Real-time SSE feed
 ```
 
@@ -444,7 +454,7 @@ frontend/
 | UI Library | React 19                                 |
 | Routing    | react-router-dom                         |
 | Charts     | Recharts                                 |
-| Icons      | Lucide React                             |
+| Icons      | react-icons (Material Design)            |
 | Styling    | Vanilla CSS (Froze Communications theme) |
 
 ---
@@ -518,7 +528,7 @@ All API responses use **snake_case** naming (e.g., `ip_address`, `blocked_at`) t
 
 ### Overview
 
-7 application tables + 1 EF Core tracking table:
+8 application tables + 1 EF Core tracking table:
 
 | Table                   | Purpose                                                     |
 | ----------------------- | ----------------------------------------------------------- |
@@ -529,6 +539,7 @@ All API responses use **snake_case** naming (e.g., `ip_address`, `blocked_at`) t
 | `VMSources`             | Registered agent VMs                                        |
 | `PerVMThresholds`       | Per-VM override thresholds                                  |
 | `AttackStatistics`      | Daily aggregated statistics                                 |
+| `Users`                 | Dashboard user accounts (JWT authentication)                |
 | `__EFMigrationsHistory` | EF Core migration tracking (internal)                       |
 
 ### Table: FailedLoginAttempts
@@ -670,13 +681,124 @@ All API responses use **snake_case** naming (e.g., `ip_address`, `blocked_at`) t
 - `idx_stats_date` — (stat_date)
 - `idx_stats_vm` — (vm_id, stat_date)
 
+### Table: Users
+
+| Column          | Type               | Nullable | Default        | Description                              |
+| --------------- | ------------------ | -------- | -------------- | ---------------------------------------- |
+| `Id`            | int (PK, identity) | No       | Auto-increment | Primary key                              |
+| `username`      | nvarchar(100)      | No       | —              | Display name (unique)                    |
+| `email`         | nvarchar(256)      | No       | —              | Login email (unique, stored lowercase)   |
+| `password_hash` | nvarchar(max)      | No       | —              | BCrypt hash                              |
+| `role`          | varchar(20)        | No       | 'analyst'      | 'admin' or 'analyst'                     |
+| `created_at`    | datetime2          | No       | GETUTCDATE()   | Row creation time                        |
+| `last_login`    | datetime2          | Yes      | —              | Updated on each login                    |
+| `is_active`     | bit                | No       | 1 (true)       | Set 0 to deactivate without deleting     |
+
+**Indexes:**
+
+- `idx_users_email` — (email) UNIQUE
+- `idx_users_username` — (username) UNIQUE
+
 ---
 
 ## API Reference
 
 Base URL: `http://<SERVER_IP>:3000`
 
-All responses are JSON with **snake_case** field names.
+All responses are JSON with **snake_case** field names. All endpoints except health, events (agent), feed (SSE), and auth require a valid JWT Bearer token in the `Authorization` header.
+
+### Authentication Endpoints
+
+---
+
+### POST /api/v1/auth/register
+
+Register a new user account. New users default to the `analyst` role.
+
+**Request Body:**
+
+```json
+{
+  "username": "johndoe",
+  "email": "john@example.com",
+  "password": "MyPassword123"
+}
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "token": "eyJhbGciOiJI...",
+  "user": {
+    "id": 1,
+    "username": "johndoe",
+    "email": "john@example.com",
+    "role": "analyst"
+  },
+  "message": "Registration successful"
+}
+```
+
+---
+
+### POST /api/v1/auth/login
+
+Authenticate an existing user and receive a JWT token (24h expiry).
+
+**Request Body:**
+
+```json
+{
+  "email": "john@example.com",
+  "password": "MyPassword123"
+}
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "token": "eyJhbGciOiJI...",
+  "user": {
+    "id": 1,
+    "username": "johndoe",
+    "email": "john@example.com",
+    "role": "admin"
+  },
+  "message": "Login successful"
+}
+```
+
+---
+
+### GET /api/v1/auth/me
+
+**Requires:** `Authorization: Bearer <token>`
+
+Returns the current authenticated user's info from the JWT.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "user": {
+    "id": 1,
+    "username": "johndoe",
+    "email": "john@example.com",
+    "role": "admin"
+  }
+}
+```
+
+---
+
+### Data Endpoints
+
+---
 
 ### GET /api/v1/health
 
@@ -760,12 +882,16 @@ Get IPs with failed attempts >= threshold.
       "failed_attempts": 12,
       "first_attempt": "2026-03-04T18:00:00",
       "last_attempt": "2026-03-04T19:34:16",
-      "status": "active"
+      "status": "active",
+      "risk_level": "critical",
+      "target_usernames": ["admin", "administrator"]
     }
   ],
   "count": 1
 }
 ```
+
+`risk_level` values: `"low"` (< 5 attempts), `"medium"` (5–9), `"high"` (10–19), `"critical"` (20+).
 
 ---
 
@@ -784,18 +910,26 @@ Get all currently active blocked IPs.
       "blocked_at": "2026-03-04T19:35:00",
       "block_expires": "2026-03-04T21:35:00",
       "reason": "Exceeded threshold",
-      "blocked_by": "manual"
+      "blocked_by": "manual",
+      "scope": "global",
+      "target_vm_id": null
     }
   ],
   "count": 1
 }
 ```
 
+- `scope`: `"global"` (applies to all VMs) or `"per-vm"` (applies to a specific VM)
+- `target_vm_id`: `null` for global blocks, VM identifier string for per-VM blocks
+- `block_expires`: `null` means permanent block (created with `duration_minutes = 0`)
+
 ---
 
 ### POST /api/v1/block
 
-Manually block an IP address (global scope).
+**Requires:** `Authorization: Bearer <token>` with `admin` role
+
+Manually block an IP address (global scope). Use `duration_minutes: 0` for a permanent block.
 
 **Request Body:**
 
@@ -820,7 +954,9 @@ Manually block an IP address (global scope).
 
 ### POST /api/v1/block/per-vm
 
-Block an IP address for a specific VM only.
+**Requires:** `Authorization: Bearer <token>` with `admin` role
+
+Block an IP address for a specific VM only. Use `duration_minutes: 0` for a permanent block.
 
 **Request Body:**
 
@@ -845,6 +981,8 @@ Block an IP address for a specific VM only.
 ---
 
 ### DELETE /api/v1/block/{ip}
+
+**Requires:** `Authorization: Bearer <token>` with `admin` role
 
 Unblock an IP address. Deactivates all active blocks for this IP and sets suspicious status to `cleared`.
 
@@ -1042,16 +1180,129 @@ Get global statistics across all VMs (includes per-VM breakdown).
 
 ---
 
-### GET /api/v1/geo-attacks
+### Threshold Endpoints
 
-Stub endpoint for future geo-IP integration. Currently returns an empty array.
+---
+
+### GET /api/v1/thresholds
+
+**Requires:** `Authorization: Bearer <token>`
+
+Get all per-VM threshold overrides.
 
 **Response:**
 
 ```json
 {
   "success": true,
-  "data": []
+  "data": [
+    {
+      "vm_id": "vm-001",
+      "threshold": 3,
+      "time_window_minutes": 10,
+      "block_duration_minutes": 120,
+      "auto_block_enabled": true
+    }
+  ],
+  "count": 1
+}
+```
+
+---
+
+### GET /api/v1/thresholds/global
+
+**Requires:** `Authorization: Bearer <token>`
+
+Get the current global threshold defaults from the Settings table.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "vm_id": "global",
+    "threshold": 5,
+    "time_window_minutes": 5,
+    "block_duration_minutes": 60,
+    "auto_block_enabled": true
+  }
+}
+```
+
+---
+
+### GET /api/v1/thresholds/{vmId}
+
+**Requires:** `Authorization: Bearer <token>`
+
+Get the resolved threshold for a specific VM. Returns per-VM override if one exists, otherwise falls back to global defaults.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "vm_id": "vm-001",
+    "threshold": 3,
+    "time_window_minutes": 10,
+    "block_duration_minutes": 120,
+    "auto_block_enabled": true
+  }
+}
+```
+
+---
+
+### PUT /api/v1/thresholds/{vmId}
+
+**Requires:** `Authorization: Bearer <token>` with `admin` role
+
+Create or update a per-VM threshold override. The VM must exist in VMSources.
+
+**Request Body:**
+
+```json
+{
+  "threshold": 3,
+  "time_window_minutes": 10,
+  "block_duration_minutes": 120,
+  "auto_block_enabled": true
+}
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "message": "Threshold for VM vm-001 saved",
+  "data": {
+    "vm_id": "vm-001",
+    "threshold": 3,
+    "time_window_minutes": 10,
+    "block_duration_minutes": 120,
+    "auto_block_enabled": true
+  }
+}
+```
+
+---
+
+### DELETE /api/v1/thresholds/{vmId}
+
+**Requires:** `Authorization: Bearer <token>` with `admin` role
+
+Delete a per-VM threshold override. The VM reverts to using global defaults.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "message": "Threshold for VM vm-001 removed — reverted to global defaults"
 }
 ```
 
@@ -1182,7 +1433,8 @@ This means a model property uses a dynamic value (like `DateTime.Now`) in `HasDa
 ```
 aspbackend/
 ├── Controllers/
-│   └── SecurityMonitorController.cs    # All 15 API endpoints
+│   ├── AuthController.cs               # Auth endpoints (register, login, me)
+│   └── SecurityMonitorController.cs    # All API endpoints (17 endpoints)
 ├── Data/
 │   └── SecurityMonitorContext.cs        # EF Core DbContext, table config, seed data
 ├── DTOs/
@@ -1198,7 +1450,8 @@ aspbackend/
 │   ├── Setting.cs                       # Settings table entity
 │   ├── VmSource.cs                      # VMSources table entity
 │   ├── PerVmThreshold.cs               # PerVMThresholds table entity
-│   └── AttackStatistic.cs              # AttackStatistics table entity
+│   ├── AttackStatistic.cs              # AttackStatistics table entity
+│   └── User.cs                         # Users table entity (JWT auth)
 ├── Properties/
 │   └── launchSettings.json              # Port and environment config
 ├── Services/
@@ -1218,7 +1471,7 @@ aspbackend/
 | Framework   | ASP.NET Core Web API     | 10.0                 |
 | ORM         | Entity Framework Core    | 10.0                 |
 | Database    | SQL Server Express       | 2019+                |
-| Auth        | Windows Authentication   | (Trusted_Connection) |
+| Auth        | JWT Bearer + BCrypt      | 24h token expiry         |
 | Real-time   | Server-Sent Events (SSE) | native               |
 | JSON        | System.Text.Json         | snake_case           |
 | DB Approach | Code-First               | EF Core Migrations   |
