@@ -61,15 +61,34 @@ public class SecurityMonitorService
 
     private async Task<bool> IsIpAlreadyBlockedAsync(string ipAddress, string? targetVmId = null)
     {
+        // Check committed DB rows
+        bool dbBlocked;
         if (string.IsNullOrEmpty(targetVmId))
         {
-            return await _db.BlockedIPs.AnyAsync(b => b.IpAddress == ipAddress && b.IsActive);
+            dbBlocked = await _db.BlockedIPs.AnyAsync(b => b.IpAddress == ipAddress && b.IsActive);
         }
-        
-        return await _db.BlockedIPs.AnyAsync(b => 
-            b.IpAddress == ipAddress && 
-            b.IsActive && 
-            (b.Scope == "global" || b.TargetVmId == targetVmId));
+        else
+        {
+            dbBlocked = await _db.BlockedIPs.AnyAsync(b => 
+                b.IpAddress == ipAddress && 
+                b.IsActive && 
+                (b.Scope == "global" || b.TargetVmId == targetVmId));
+        }
+
+        if (dbBlocked) return true;
+
+        // Also check staged (uncommitted) blocks in the change tracker.
+        // During batch processing, a block may have been staged for this IP
+        // by an earlier event in the same batch but not yet saved to DB.
+        var stagedBlocked = _db.ChangeTracker.Entries<BlockedIp>()
+            .Any(e => e.State == EntityState.Added
+                   && e.Entity.IpAddress == ipAddress
+                   && e.Entity.IsActive
+                   && (string.IsNullOrEmpty(targetVmId) 
+                       || e.Entity.Scope == "global" 
+                       || e.Entity.TargetVmId == targetVmId));
+
+        return stagedBlocked;
     }
 
     // =========================================================================
@@ -225,10 +244,22 @@ public class SecurityMonitorService
         if (!vmAutoBlockEnabled)
             return false;
 
-        // Count attempts within time window
+        // Count attempts within time window.
+        // We must count BOTH committed DB rows AND uncommitted (staged) entities
+        // in the EF change tracker. During batch processing, SaveChangesAsync is
+        // called only once at the end, so newly added events in the same batch
+        // won't appear in a DB query yet. Without this, burst attacks that arrive
+        // in a single batch can slip past the threshold check.
         var windowStart = DateTime.Now.AddMinutes(-timeWindow);
-        var attemptCount = await _db.FailedLoginAttempts
+        var dbCount = await _db.FailedLoginAttempts
             .CountAsync(f => f.IpAddress == ipAddress && f.Timestamp >= windowStart);
+
+        var stagedCount = _db.ChangeTracker.Entries<FailedLoginAttempt>()
+            .Count(e => e.State == EntityState.Added
+                     && e.Entity.IpAddress == ipAddress
+                     && e.Entity.Timestamp >= windowStart);
+
+        var attemptCount = dbCount + stagedCount;
 
         // If threshold exceeded, stage auto-block (don't save yet - let batch handle it)
         if (attemptCount >= threshold)
