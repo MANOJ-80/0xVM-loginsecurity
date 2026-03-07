@@ -53,6 +53,115 @@ public class SecurityMonitorService
         return (globalThreshold, timeWindow, blockDuration, autoBlockEnabled);
     }
 
+    // =========================================================================
+    // PerVmThreshold CRUD
+    // =========================================================================
+
+    /// <summary>
+    /// Get all per-VM thresholds with their resolved global fallback values.
+    /// </summary>
+    public async Task<List<PerVmThresholdDto>> GetAllPerVmThresholdsAsync()
+    {
+        return await _db.PerVMThresholds
+            .OrderBy(p => p.VmId)
+            .Select(p => new PerVmThresholdDto
+            {
+                VmId = p.VmId,
+                Threshold = p.Threshold,
+                TimeWindowMinutes = p.TimeWindowMinutes,
+                BlockDurationMinutes = p.BlockDurationMinutes,
+                AutoBlockEnabled = p.AutoBlockEnabled
+            })
+            .ToListAsync();
+    }
+
+    /// <summary>
+    /// Get threshold settings for a specific VM (per-VM override or global fallback).
+    /// </summary>
+    public async Task<PerVmThresholdDto> GetVmThresholdAsync(string vmId)
+    {
+        var (threshold, timeWindow, blockDuration, autoBlock) = await GetThresholdSettingsAsync(vmId);
+        return new PerVmThresholdDto
+        {
+            VmId = vmId,
+            Threshold = threshold,
+            TimeWindowMinutes = timeWindow,
+            BlockDurationMinutes = blockDuration,
+            AutoBlockEnabled = autoBlock
+        };
+    }
+
+    /// <summary>
+    /// Create or update a per-VM threshold override.
+    /// </summary>
+    public async Task<PerVmThresholdDto> UpsertPerVmThresholdAsync(PerVmThresholdDto dto)
+    {
+        // Validate VM exists
+        var vmExists = await _db.VMSources.AnyAsync(v => v.VmId == dto.VmId);
+        if (!vmExists)
+            throw new InvalidOperationException($"VM '{dto.VmId}' does not exist");
+
+        var existing = await _db.PerVMThresholds.FirstOrDefaultAsync(p => p.VmId == dto.VmId);
+
+        if (existing != null)
+        {
+            existing.Threshold = dto.Threshold;
+            existing.TimeWindowMinutes = dto.TimeWindowMinutes;
+            existing.BlockDurationMinutes = dto.BlockDurationMinutes;
+            existing.AutoBlockEnabled = dto.AutoBlockEnabled;
+            existing.UpdatedAt = DateTime.Now;
+        }
+        else
+        {
+            _db.PerVMThresholds.Add(new PerVmThreshold
+            {
+                VmId = dto.VmId,
+                Threshold = dto.Threshold,
+                TimeWindowMinutes = dto.TimeWindowMinutes,
+                BlockDurationMinutes = dto.BlockDurationMinutes,
+                AutoBlockEnabled = dto.AutoBlockEnabled
+            });
+        }
+
+        await _db.SaveChangesAsync();
+        return dto;
+    }
+
+    /// <summary>
+    /// Delete a per-VM threshold override (VM reverts to global settings).
+    /// </summary>
+    public async Task<bool> DeletePerVmThresholdAsync(string vmId)
+    {
+        var existing = await _db.PerVMThresholds.FirstOrDefaultAsync(p => p.VmId == vmId);
+        if (existing == null)
+            return false;
+
+        _db.PerVMThresholds.Remove(existing);
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    /// <summary>
+    /// Get the current global threshold settings from the Settings table.
+    /// </summary>
+    public async Task<PerVmThresholdDto> GetGlobalThresholdAsync()
+    {
+        var settings = await _db.Settings.ToDictionaryAsync(s => s.KeyName, s => s.Value);
+        int.TryParse(settings.GetValueOrDefault("GLOBAL_THRESHOLD", "5"), out var threshold);
+        int.TryParse(settings.GetValueOrDefault("TIME_WINDOW", "5"), out var timeWindow);
+        int.TryParse(settings.GetValueOrDefault("BLOCK_DURATION", "60"), out var blockDuration);
+        var autoBlock = settings.GetValueOrDefault("ENABLE_AUTO_BLOCK", "true")?.ToLower() == "true";
+
+        return new PerVmThresholdDto
+        {
+            VmId = "GLOBAL",
+            Threshold = threshold,
+            TimeWindowMinutes = timeWindow,
+            BlockDurationMinutes = blockDuration,
+            AutoBlockEnabled = autoBlock
+        };
+    }
+
     private async Task<bool> IsAutoBlockEnabledAsync()
     {
         var setting = await _db.Settings.FirstOrDefaultAsync(s => s.KeyName == "ENABLE_AUTO_BLOCK");
@@ -331,18 +440,53 @@ public class SecurityMonitorService
     // =========================================================================
     public async Task<List<SuspiciousIpDto>> GetSuspiciousIpsAsync(int threshold)
     {
-        return await _db.SuspiciousIPs
-            .Where(s => s.FailedAttempts >= threshold && s.Status == "active")
+        // Return all IPs with meaningful activity (>= 2 attempts).
+        // Include ALL statuses — this is an intelligence/monitoring view.
+        // Compute risk_level based on how close they are to the threshold.
+        var ips = await _db.SuspiciousIPs
+            .Where(s => s.FailedAttempts >= 2)
             .OrderByDescending(s => s.FailedAttempts)
-            .Select(s => new SuspiciousIpDto
+            .ToListAsync();
+
+        return ips.Select(s =>
+        {
+            string riskLevel;
+            if (s.Status == "blocked")
+                riskLevel = "blocked";
+            else if (s.Status == "cleared")
+                riskLevel = "cleared";
+            else if (s.FailedAttempts >= threshold)
+                riskLevel = "critical";
+            else if (s.FailedAttempts >= threshold * 0.7)
+                riskLevel = "high";
+            else if (s.FailedAttempts >= threshold * 0.4)
+                riskLevel = "medium";
+            else
+                riskLevel = "low";
+
+            List<string> usernames;
+            try
+            {
+                usernames = string.IsNullOrEmpty(s.TargetUsernames)
+                    ? new List<string>()
+                    : System.Text.Json.JsonSerializer.Deserialize<List<string>>(s.TargetUsernames) ?? new List<string>();
+            }
+            catch
+            {
+                usernames = new List<string>();
+            }
+
+            return new SuspiciousIpDto
             {
                 IpAddress = s.IpAddress,
                 FailedAttempts = s.FailedAttempts,
                 FirstAttempt = s.FirstAttempt,
                 LastAttempt = s.LastAttempt,
-                Status = s.Status
-            })
-            .ToListAsync();
+                Status = s.Status,
+                RiskLevel = riskLevel,
+                TargetUsernames = usernames
+            };
+        }).ToList();
     }
 
     // =========================================================================
@@ -358,7 +502,7 @@ public class SecurityMonitorService
         {
             IpAddress = ipAddress,
             Reason = reason,
-            BlockExpires = DateTime.Now.AddMinutes(durationMinutes),
+            BlockExpires = durationMinutes > 0 ? DateTime.Now.AddMinutes(durationMinutes) : null,
             BlockedBy = blockedBy
         });
 
@@ -385,7 +529,7 @@ public class SecurityMonitorService
         {
             IpAddress = ipAddress,
             Reason = reason,
-            BlockExpires = DateTime.Now.AddMinutes(durationMinutes),
+            BlockExpires = durationMinutes > 0 ? DateTime.Now.AddMinutes(durationMinutes) : null,
             BlockedBy = blockedBy,
             Scope = "per-vm",
             TargetVmId = targetVmId

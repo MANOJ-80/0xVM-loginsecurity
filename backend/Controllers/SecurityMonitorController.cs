@@ -183,10 +183,11 @@ public class SecurityMonitorController : ControllerBase
         try
         {
             await _service.BlockIpAsync(req.IpAddress, req.Reason, req.DurationMinutes, "manual");
+            var durationMsg = req.DurationMinutes > 0 ? $"for {req.DurationMinutes} minutes" : "permanently";
             return Ok(new MessageResponse
             {
                 Success = true,
-                Message = $"IP {req.IpAddress} blocked for {req.DurationMinutes} minutes"
+                Message = $"IP {req.IpAddress} blocked {durationMsg}"
             });
         }
         catch (InvalidOperationException ex)
@@ -213,10 +214,11 @@ public class SecurityMonitorController : ControllerBase
         try
         {
             await _service.BlockIpPerVmAsync(req.IpAddress, req.VmId, req.Reason, req.DurationMinutes, "manual");
+            var durationMsg = req.DurationMinutes > 0 ? $"for {req.DurationMinutes} minutes" : "permanently";
             return Ok(new MessageResponse
             {
                 Success = true,
-                Message = $"IP {req.IpAddress} blocked on VM {req.VmId} for {req.DurationMinutes} minutes"
+                Message = $"IP {req.IpAddress} blocked on VM {req.VmId} {durationMsg}"
             });
         }
         catch (InvalidOperationException ex)
@@ -370,6 +372,106 @@ public class SecurityMonitorController : ControllerBase
         {
             _logger.LogError(ex, "Failed to get VM attacks for {VmId}", vmId);
             return StatusCode(500, new { detail = "Failed to get VM attacks" });
+        }
+    }
+
+    // =========================================================================
+    // GET /api/v1/thresholds  (all per-VM overrides)
+    // =========================================================================
+    [HttpGet("api/v1/thresholds")]
+    public async Task<IActionResult> GetAllThresholds()
+    {
+        try
+        {
+            var results = await _service.GetAllPerVmThresholdsAsync();
+            return Ok(new ListResponse<PerVmThresholdDto> { Success = true, Data = results, Count = results.Count });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to fetch thresholds");
+            return StatusCode(500, new { detail = "Failed to fetch thresholds" });
+        }
+    }
+
+    // =========================================================================
+    // GET /api/v1/thresholds/global  (current global defaults)
+    // =========================================================================
+    [HttpGet("api/v1/thresholds/global")]
+    public async Task<IActionResult> GetGlobalThreshold()
+    {
+        try
+        {
+            var data = await _service.GetGlobalThresholdAsync();
+            return Ok(new PerVmThresholdResponse { Success = true, Data = data });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to fetch global threshold");
+            return StatusCode(500, new { detail = "Failed to fetch global threshold" });
+        }
+    }
+
+    // =========================================================================
+    // GET /api/v1/thresholds/{vmId}  (resolved settings for a VM)
+    // =========================================================================
+    [HttpGet("api/v1/thresholds/{vmId}")]
+    public async Task<IActionResult> GetVmThreshold(string vmId)
+    {
+        try
+        {
+            var data = await _service.GetVmThresholdAsync(vmId);
+            return Ok(new PerVmThresholdResponse { Success = true, Data = data });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to fetch threshold for VM {VmId}", vmId);
+            return StatusCode(500, new { detail = "Failed to fetch threshold" });
+        }
+    }
+
+    // =========================================================================
+    // PUT /api/v1/thresholds/{vmId}  (create or update per-VM override)
+    // =========================================================================
+    [HttpPut("api/v1/thresholds/{vmId}")]
+    [Authorize(Roles = "admin")]
+    public async Task<IActionResult> UpsertVmThreshold(string vmId, [FromBody] PerVmThresholdDto dto)
+    {
+        dto.VmId = vmId; // ensure URL param takes precedence
+        try
+        {
+            var result = await _service.UpsertPerVmThresholdAsync(dto);
+            return Ok(new PerVmThresholdResponse { Success = true, Message = $"Threshold for VM {vmId} saved", Data = result });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { detail = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to upsert threshold for VM {VmId}", vmId);
+            return StatusCode(500, new { detail = "Failed to save threshold" });
+        }
+    }
+
+    // =========================================================================
+    // DELETE /api/v1/thresholds/{vmId}  (revert to global defaults)
+    // =========================================================================
+    [HttpDelete("api/v1/thresholds/{vmId}")]
+    [Authorize(Roles = "admin")]
+    public async Task<IActionResult> DeleteVmThreshold(string vmId)
+    {
+        try
+        {
+            var deleted = await _service.DeletePerVmThresholdAsync(vmId);
+            if (!deleted)
+                return NotFound(new { detail = $"No per-VM threshold found for {vmId}" });
+
+            return Ok(new MessageResponse { Success = true, Message = $"Threshold for VM {vmId} removed — reverted to global defaults" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to delete threshold for VM {VmId}", vmId);
+            return StatusCode(500, new { detail = "Failed to delete threshold" });
         }
     }
 

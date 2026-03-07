@@ -13,7 +13,7 @@ function BlockedIPs() {
   const [blockForm, setBlockForm] = useState({
     ip_address: "",
     reason: "",
-    duration_minutes: 120,
+    duration_minutes: "120",
   });
   const [unblocking, setUnblocking] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -77,14 +77,15 @@ function BlockedIPs() {
 
     setBlockSubmitting(true);
     try {
+      const duration = parseInt(blockForm.duration_minutes);
       await blockIp(
         blockForm.ip_address.trim(),
         blockForm.reason || "Manual block",
-        blockForm.duration_minutes
+        duration
       );
-      setSuccess(`IP ${blockForm.ip_address} blocked`);
+      setSuccess(`IP ${blockForm.ip_address} blocked${duration === 0 ? " permanently" : ""}`);
       setShowBlockModal(false);
-      setBlockForm({ ip_address: "", reason: "", duration_minutes: 120 });
+      setBlockForm({ ip_address: "", reason: "", duration_minutes: "120" });
       setBlockError(null);
       fetchBlockedIps();
     } catch (err) {
@@ -282,21 +283,25 @@ function BlockedIPs() {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-700">
-                    Duration (minutes)
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1"
+                  <label className="text-sm text-gray-700">Duration</label>
+                  <select
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 mt-1 bg-white"
                     value={blockForm.duration_minutes}
                     onChange={(e) =>
                       setBlockForm({
                         ...blockForm,
-                        duration_minutes: parseInt(e.target.value) || 120,
+                        duration_minutes: e.target.value,
                       })
                     }
-                  />
+                  >
+                    <option value="60">1 Hour</option>
+                    <option value="120">2 Hours</option>
+                    <option value="360">6 Hours</option>
+                    <option value="1440">24 Hours</option>
+                    <option value="10080">7 Days</option>
+                    <option value="43200">30 Days</option>
+                    <option value="0">Permanent</option>
+                  </select>
                 </div>
                 <div className="flex gap-3 justify-end pt-2">
                   <button

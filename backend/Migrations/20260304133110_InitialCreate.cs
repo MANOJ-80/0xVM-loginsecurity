@@ -111,6 +111,25 @@ namespace SecurityMonitorApi.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "Users",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    username = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false),
+                    email = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: false),
+                    password_hash = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    role = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: false, defaultValue: "analyst"),
+                    created_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETUTCDATE()"),
+                    last_login = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    is_active = table.Column<bool>(type: "bit", nullable: false, defaultValue: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Users", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "VMSources",
                 columns: table => new
                 {
@@ -238,6 +257,18 @@ namespace SecurityMonitorApi.Migrations
                 column: "status");
 
             migrationBuilder.CreateIndex(
+                name: "idx_users_email",
+                table: "Users",
+                column: "email",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "idx_users_username",
+                table: "Users",
+                column: "username",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "idx_vmsources_status",
                 table: "VMSources",
                 column: "status");
@@ -269,6 +300,9 @@ namespace SecurityMonitorApi.Migrations
 
             migrationBuilder.DropTable(
                 name: "SuspiciousIPs");
+
+            migrationBuilder.DropTable(
+                name: "Users");
 
             migrationBuilder.DropTable(
                 name: "VMSources");

@@ -89,7 +89,7 @@ using (var scope = app.Services.CreateScope())
         using (var cmd = conn.CreateCommand())
         {
             // Check if one of our tables already exists
-            cmd.CommandText = "SELECT OBJECT_ID(N'AttackStatistics')";
+            cmd.CommandText = "SELECT OBJECT_ID(N'FailedLoginAttempts')";
             var result = await cmd.ExecuteScalarAsync();
             bool tablesExist = result != null && result != DBNull.Value;
 

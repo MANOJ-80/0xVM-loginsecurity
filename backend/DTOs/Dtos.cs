@@ -33,6 +33,9 @@ public class ManualBlockRequest
 {
     public string IpAddress { get; set; } = string.Empty;
     public string Reason { get; set; } = string.Empty;
+    /// <summary>
+    /// 0 = permanent block (no expiry), positive = duration in minutes.
+    /// </summary>
     public int DurationMinutes { get; set; } = 120;
 }
 
@@ -41,6 +44,9 @@ public class PerVmBlockRequest
     public string IpAddress { get; set; } = string.Empty;
     public string VmId { get; set; } = string.Empty;
     public string Reason { get; set; } = string.Empty;
+    /// <summary>
+    /// 0 = permanent block (no expiry), positive = duration in minutes.
+    /// </summary>
     public int DurationMinutes { get; set; } = 120;
 }
 
@@ -150,6 +156,8 @@ public class SuspiciousIpDto
     public DateTime? FirstAttempt { get; set; }
     public DateTime? LastAttempt { get; set; }
     public string Status { get; set; } = string.Empty;
+    public string RiskLevel { get; set; } = string.Empty;
+    public List<string> TargetUsernames { get; set; } = new();
 }
 
 public class VmListDto

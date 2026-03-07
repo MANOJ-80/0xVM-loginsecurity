@@ -66,8 +66,8 @@ export const getStatistics = () =>
   API.get("/statistics").then(unwrap);
 
 // ---- Suspicious IPs ----
-export const getSuspiciousIps = (threshold = 5) =>
-  API.get(`/suspicious-ips?threshold=${threshold}`).then(unwrap);
+export const getSuspiciousIps = () =>
+  API.get("/suspicious-ips").then(unwrap);
 
 // ---- Blocked IPs ----
 export const getBlockedIps = () =>
@@ -108,6 +108,19 @@ export const registerVm = (vmId, hostname, ipAddress, collectionMethod = "agent"
 
 export const deleteVm = (vmId) =>
   API.delete(`/vms/${encodeURIComponent(vmId)}`);
+
+// ---- Thresholds ----
+export const getVmThreshold = (vmId) =>
+  API.get(`/thresholds/${encodeURIComponent(vmId)}`).then(unwrap);
+
+export const getGlobalThreshold = () =>
+  API.get("/thresholds/global").then(unwrap);
+
+export const upsertVmThreshold = (vmId, data) =>
+  API.put(`/thresholds/${encodeURIComponent(vmId)}`, data);
+
+export const deleteVmThreshold = (vmId) =>
+  API.delete(`/thresholds/${encodeURIComponent(vmId)}`);
 
 // ---- Health ----
 export const getHealth = () =>

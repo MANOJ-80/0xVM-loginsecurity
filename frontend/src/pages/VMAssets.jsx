@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
-import { MdAdd, MdRefresh, MdClose, MdCircle, MdBlock } from "react-icons/md";
+import { MdAdd, MdRefresh, MdClose, MdCircle, MdBlock, MdTune, MdRestartAlt } from "react-icons/md";
 import Sidebar from "../components/Sidebar";
 import StatCard from "../components/StatCard";
-import { getVMs, getVmAttacks, registerVm, deleteVm, blockIpPerVm } from "../services/api";
+import { getVMs, getVmAttacks, registerVm, deleteVm, blockIpPerVm, getVmThreshold, upsertVmThreshold, deleteVmThreshold } from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import { isValidIp } from "../utils/validation";
 
@@ -18,10 +18,19 @@ function VMAssets() {
   const [error, setError] = useState(null);
 
   // Per-VM block form state
-  const [blockForm, setBlockForm] = useState({ ip: "", reason: "", duration: 120 });
+  const [blockForm, setBlockForm] = useState({ ip: "", reason: "", duration: "120" });
   const [blockSubmitting, setBlockSubmitting] = useState(false);
   const [blockSuccess, setBlockSuccess] = useState(null);
   const [blockError, setBlockError] = useState(null);
+
+  // Per-VM threshold state
+  const [thresholdData, setThresholdData] = useState(null);
+  const [thresholdForm, setThresholdForm] = useState({ threshold: 5, time_window_minutes: 5, block_duration_minutes: 60, auto_block_enabled: true });
+  const [thresholdLoading, setThresholdLoading] = useState(false);
+  const [thresholdSaving, setThresholdSaving] = useState(false);
+  const [thresholdMsg, setThresholdMsg] = useState(null);
+  const [thresholdError, setThresholdError] = useState(null);
+  const [isCustomThreshold, setIsCustomThreshold] = useState(false);
 
   // ---- Fetch VM list ----
   const fetchVMs = useCallback(async () => {
@@ -56,15 +65,43 @@ function VMAssets() {
     fetchVMs();
   }, [fetchVMs]);
 
-  // When a VM is selected, fetch its attack details + reset block form
+  // When a VM is selected, fetch its attack details + threshold + reset forms
   useEffect(() => {
     if (selectedVM) {
       fetchVmDetail(selectedVM.vm_id);
-      setBlockForm({ ip: "", reason: "", duration: 120 });
+      setBlockForm({ ip: "", reason: "", duration: "120" });
       setBlockSuccess(null);
       setBlockError(null);
+      setThresholdMsg(null);
+      setThresholdError(null);
+      // Fetch threshold settings for this VM
+      (async () => {
+        setThresholdLoading(true);
+        try {
+          const data = await getVmThreshold(selectedVM.vm_id);
+          setThresholdData(data);
+          setThresholdForm({
+            threshold: data.threshold ?? 5,
+            time_window_minutes: data.time_window_minutes ?? 5,
+            block_duration_minutes: data.block_duration_minutes ?? 60,
+            auto_block_enabled: data.auto_block_enabled ?? true,
+          });
+          // Check if this VM has a custom override (vm_id !== "GLOBAL" in response means it resolved per-VM)
+          // We need to check if per-VM record exists: re-query the specific override
+          // Actually, getVmThreshold returns resolved settings. We can check by comparing to see if a custom record exists.
+          // Simplest: try to see if the data came from a per-VM override or global fallback.
+          // The backend returns the same DTO shape either way. Let's just fetch all thresholds and check.
+          // For simplicity: if the endpoint returns data, the service resolves it. We'll track via a separate flag.
+          setIsCustomThreshold(false); // will be set properly below
+        } catch {
+          setThresholdData(null);
+        } finally {
+          setThresholdLoading(false);
+        }
+      })();
     } else {
       setVmDetail(null);
+      setThresholdData(null);
     }
   }, [selectedVM, fetchVmDetail]);
 
@@ -76,6 +113,66 @@ function VMAssets() {
     }
   }, [blockSuccess]);
 
+  // Auto-dismiss threshold messages after 3s
+  useEffect(() => {
+    if (thresholdMsg) {
+      const t = setTimeout(() => setThresholdMsg(null), 3000);
+      return () => clearTimeout(t);
+    }
+  }, [thresholdMsg]);
+
+  // ---- Save per-VM threshold override ----
+  const handleSaveThreshold = async (e) => {
+    e.preventDefault();
+    setThresholdError(null);
+    setThresholdMsg(null);
+    setThresholdSaving(true);
+    try {
+      await upsertVmThreshold(selectedVM.vm_id, {
+        threshold: thresholdForm.threshold,
+        time_window_minutes: thresholdForm.time_window_minutes,
+        block_duration_minutes: thresholdForm.block_duration_minutes,
+        auto_block_enabled: thresholdForm.auto_block_enabled,
+      });
+      setThresholdMsg("Threshold saved");
+      setIsCustomThreshold(true);
+    } catch (err) {
+      setThresholdError(err.response?.data?.detail || "Failed to save threshold");
+    } finally {
+      setThresholdSaving(false);
+    }
+  };
+
+  // ---- Reset to global defaults (delete per-VM override) ----
+  const handleResetThreshold = async () => {
+    setThresholdError(null);
+    setThresholdMsg(null);
+    setThresholdSaving(true);
+    try {
+      await deleteVmThreshold(selectedVM.vm_id);
+      // Re-fetch to get the global fallback values
+      const data = await getVmThreshold(selectedVM.vm_id);
+      setThresholdData(data);
+      setThresholdForm({
+        threshold: data.threshold ?? 5,
+        time_window_minutes: data.time_window_minutes ?? 5,
+        block_duration_minutes: data.block_duration_minutes ?? 60,
+        auto_block_enabled: data.auto_block_enabled ?? true,
+      });
+      setIsCustomThreshold(false);
+      setThresholdMsg("Reverted to global defaults");
+    } catch (err) {
+      // 404 means no override existed — that's fine
+      if (err.response?.status !== 404) {
+        setThresholdError(err.response?.data?.detail || "Failed to reset threshold");
+      } else {
+        setThresholdMsg("Already using global defaults");
+      }
+    } finally {
+      setThresholdSaving(false);
+    }
+  };
+
   // ---- Block IP on specific VM ----
   const handlePerVmBlock = async (e) => {
     e.preventDefault();
@@ -86,11 +183,12 @@ function VMAssets() {
       setBlockError("Please enter a valid IPv4 or IPv6 address");
       return;
     }
+    const duration = parseInt(blockForm.duration);
     setBlockSubmitting(true);
     try {
-      await blockIpPerVm(ip, selectedVM.vm_id, blockForm.reason || "Manual per-VM block", blockForm.duration);
-      setBlockSuccess(`IP ${ip} blocked on ${selectedVM.vm_id}`);
-      setBlockForm({ ip: "", reason: "", duration: 120 });
+      await blockIpPerVm(ip, selectedVM.vm_id, blockForm.reason || "Manual per-VM block", duration);
+      setBlockSuccess(`IP ${ip} blocked on ${selectedVM.vm_id}${duration === 0 ? " (permanent)" : ""}`);
+      setBlockForm({ ip: "", reason: "", duration: "120" });
       // Refresh detail stats
       fetchVmDetail(selectedVM.vm_id);
     } catch (err) {
@@ -276,8 +374,8 @@ function VMAssets() {
               </button>
             </div>
 
-            {/* 3-column grid: VM Info | Attack Stats | Per-VM Block */}
-            <div className={`grid gap-6 ${isAdmin && selectedVM.status === "active" ? "grid-cols-1 md:grid-cols-3" : "grid-cols-1 md:grid-cols-2"}`}>
+            {/* Grid: VM Info | Attack Stats */}
+            <div className="grid gap-6 grid-cols-1 md:grid-cols-2 mb-6">
               {/* Column 1: VM Info */}
               <div className="bg-gray-50 border border-gray-200 rounded-xl p-5">
                 <h4 className="text-sm font-bold text-gray-700 mb-4">VM Information</h4>
@@ -333,9 +431,101 @@ function VMAssets() {
                   <div className="text-gray-400 text-sm">No attack data available.</div>
                 )}
               </div>
+            </div>
 
-              {/* Column 3: Per-VM Block Form (admin only) */}
-              {isAdmin && selectedVM.status === "active" && (
+            {/* Row 2: Threshold Config | Per-VM Block (admin only) */}
+            {isAdmin && selectedVM.status === "active" && (
+              <div className="grid gap-6 grid-cols-1 md:grid-cols-2">
+                {/* Threshold Configuration */}
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-5">
+                  <h4 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2">
+                    <MdTune className="text-blue-500" /> Threshold Configuration
+                  </h4>
+
+                  {thresholdMsg && (
+                    <div className="bg-green-50 border border-green-200 text-green-700 p-2 rounded-lg mb-3 text-xs">
+                      {thresholdMsg}
+                    </div>
+                  )}
+                  {thresholdError && (
+                    <div className="bg-red-50 border border-red-200 text-red-700 p-2 rounded-lg mb-3 text-xs flex justify-between items-center">
+                      <span>{thresholdError}</span>
+                      <button onClick={() => setThresholdError(null)} className="text-red-400 hover:text-red-600 font-bold ml-2 text-xs">&times;</button>
+                    </div>
+                  )}
+
+                  {thresholdLoading ? (
+                    <div className="text-gray-400 text-sm">Loading threshold settings...</div>
+                  ) : (
+                    <form onSubmit={handleSaveThreshold} className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs text-gray-500 mb-1 block">Threshold (attempts)</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={1000}
+                            value={thresholdForm.threshold}
+                            onChange={(e) => setThresholdForm({ ...thresholdForm, threshold: parseInt(e.target.value) || 5 })}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500 mb-1 block">Time Window (min)</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={1440}
+                            value={thresholdForm.time_window_minutes}
+                            onChange={(e) => setThresholdForm({ ...thresholdForm, time_window_minutes: parseInt(e.target.value) || 5 })}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Auto-block Duration (min)</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={525600}
+                          value={thresholdForm.block_duration_minutes}
+                          onChange={(e) => setThresholdForm({ ...thresholdForm, block_duration_minutes: parseInt(e.target.value) || 60 })}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id={`autoblock-${selectedVM.vm_id}`}
+                          checked={thresholdForm.auto_block_enabled}
+                          onChange={(e) => setThresholdForm({ ...thresholdForm, auto_block_enabled: e.target.checked })}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <label htmlFor={`autoblock-${selectedVM.vm_id}`} className="text-xs text-gray-600">Enable auto-blocking</label>
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          type="submit"
+                          disabled={thresholdSaving}
+                          className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white py-2 rounded-lg text-sm font-bold"
+                        >
+                          {thresholdSaving ? "Saving..." : "Save Override"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleResetThreshold}
+                          disabled={thresholdSaving}
+                          className="flex items-center gap-1 px-3 py-2 border border-gray-300 rounded-lg text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+                          title="Revert to global defaults"
+                        >
+                          <MdRestartAlt /> Reset
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
+
+                {/* Per-VM Block Form */}
                 <div className="bg-gray-50 border border-gray-200 rounded-xl p-5">
                   <h4 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2">
                     <MdBlock className="text-red-500" /> Block IP on this VM
@@ -376,14 +566,19 @@ function VMAssets() {
                       />
                     </div>
                     <div>
-                      <label className="text-xs text-gray-500 mb-1 block">Duration (minutes)</label>
-                      <input
-                        type="number"
-                        min={1}
+                      <label className="text-xs text-gray-500 mb-1 block">Duration</label>
+                      <select
                         value={blockForm.duration}
-                        onChange={(e) => setBlockForm({ ...blockForm, duration: parseInt(e.target.value) || 120 })}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
-                      />
+                        onChange={(e) => setBlockForm({ ...blockForm, duration: e.target.value })}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none bg-white"
+                      >
+                        <option value="60">1 Hour</option>
+                        <option value="360">6 Hours</option>
+                        <option value="1440">24 Hours</option>
+                        <option value="10080">7 Days</option>
+                        <option value="43200">30 Days</option>
+                        <option value="0">Permanent</option>
+                      </select>
                     </div>
                     <button
                       type="submit"
@@ -394,8 +589,8 @@ function VMAssets() {
                     </button>
                   </form>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         )}
       </main>

@@ -16,7 +16,6 @@ public class SecurityMonitorContext : DbContext
     public DbSet<Setting> Settings => Set<Setting>();
     public DbSet<VmSource> VMSources => Set<VmSource>();
     public DbSet<PerVmThreshold> PerVMThresholds => Set<PerVmThreshold>();
-    public DbSet<AttackStatistic> AttackStatistics => Set<AttackStatistic>();
     public DbSet<User> Users => Set<User>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -374,53 +373,5 @@ public class SecurityMonitorContext : DbContext
                 .HasDefaultValue(true);
         });
 
-        // =============================================
-        // AttackStatistics
-        // =============================================
-        modelBuilder.Entity<AttackStatistic>(entity =>
-        {
-            entity.ToTable("AttackStatistics");
-
-            entity.Property(e => e.StatDate)
-                .HasColumnName("stat_date")
-                .HasColumnType("date");
-
-            entity.Property(e => e.VmId)
-                .HasColumnName("vm_id")
-                .HasMaxLength(100);
-
-            entity.Property(e => e.TotalAttacks)
-                .HasColumnName("total_attacks");
-
-            entity.Property(e => e.UniqueAttackers)
-                .HasColumnName("unique_attackers");
-
-            entity.Property(e => e.BlockedCount)
-                .HasColumnName("blocked_count");
-
-            entity.Property(e => e.TopUsername)
-                .HasColumnName("top_username")
-                .HasMaxLength(256);
-
-            entity.Property(e => e.TopIp)
-                .HasColumnName("top_ip")
-                .HasMaxLength(45);
-
-            entity.Property(e => e.CreatedAt)
-                .HasColumnName("created_at")
-                .HasColumnType("datetime2")
-                .HasDefaultValueSql("GETDATE()");
-
-            // Unique constraint on (stat_date, vm_id)
-            entity.HasIndex(e => new { e.StatDate, e.VmId })
-                .IsUnique()
-                .HasDatabaseName("IX_AttackStatistics_StatDate_VmId");
-
-            entity.HasIndex(e => e.StatDate)
-                .HasDatabaseName("idx_stats_date");
-
-            entity.HasIndex(e => new { e.VmId, e.StatDate })
-                .HasDatabaseName("idx_stats_vm");
-        });
     }
 }

@@ -22,67 +22,6 @@ namespace SecurityMonitorApi.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
-            modelBuilder.Entity("SecurityMonitorApi.Models.AttackStatistic", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int?>("BlockedCount")
-                        .HasColumnType("int")
-                        .HasColumnName("blocked_count");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime2")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("GETDATE()");
-
-                    b.Property<DateTime?>("StatDate")
-                        .HasColumnType("date")
-                        .HasColumnName("stat_date");
-
-                    b.Property<string>("TopIp")
-                        .HasMaxLength(45)
-                        .HasColumnType("nvarchar(45)")
-                        .HasColumnName("top_ip");
-
-                    b.Property<string>("TopUsername")
-                        .HasMaxLength(256)
-                        .HasColumnType("nvarchar(256)")
-                        .HasColumnName("top_username");
-
-                    b.Property<int?>("TotalAttacks")
-                        .HasColumnType("int")
-                        .HasColumnName("total_attacks");
-
-                    b.Property<int?>("UniqueAttackers")
-                        .HasColumnType("int")
-                        .HasColumnName("unique_attackers");
-
-                    b.Property<string>("VmId")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)")
-                        .HasColumnName("vm_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("StatDate")
-                        .HasDatabaseName("idx_stats_date");
-
-                    b.HasIndex("StatDate", "VmId")
-                        .IsUnique()
-                        .HasDatabaseName("IX_AttackStatistics_StatDate_VmId")
-                        .HasFilter("[stat_date] IS NOT NULL AND [vm_id] IS NOT NULL");
-
-                    b.HasIndex("VmId", "StatDate")
-                        .HasDatabaseName("idx_stats_vm");
-
-                    b.ToTable("AttackStatistics", (string)null);
-                });
-
             modelBuilder.Entity("SecurityMonitorApi.Models.BlockedIp", b =>
                 {
                     b.Property<int>("Id")
@@ -423,6 +362,68 @@ namespace SecurityMonitorApi.Migrations
                         .HasDatabaseName("idx_suspicious_status");
 
                     b.ToTable("SuspiciousIPs", (string)null);
+                });
+
+            modelBuilder.Entity("SecurityMonitorApi.Models.User", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("GETUTCDATE()");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)")
+                        .HasColumnName("email");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<DateTime?>("LastLogin")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("last_login");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("password_hash");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("analyst")
+                        .HasColumnName("role");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("username");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Email")
+                        .IsUnique()
+                        .HasDatabaseName("idx_users_email");
+
+                    b.HasIndex("Username")
+                        .IsUnique()
+                        .HasDatabaseName("idx_users_username");
+
+                    b.ToTable("Users", (string)null);
                 });
 
             modelBuilder.Entity("SecurityMonitorApi.Models.VmSource", b =>
