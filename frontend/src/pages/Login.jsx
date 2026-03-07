@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { MdSecurity, MdEmail, MdLock, MdLogin } from "react-icons/md";
 import { useAuth } from "../context/AuthContext";
@@ -6,11 +6,18 @@ import { loginUser } from "../services/api";
 
 function Login() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, isAuthenticated, loading: authLoading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  // Redirect authenticated users to dashboard
+  useEffect(() => {
+    if (!authLoading && isAuthenticated) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [authLoading, isAuthenticated, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -46,12 +53,6 @@ function Login() {
         <div className="flex items-center gap-2 text-red-600 font-bold text-xl">
           <MdSecurity size={28} />
           CyberSOC
-        </div>
-
-        <div className="flex gap-6 text-sm text-gray-500">
-          <a href="#">System Status</a>
-          <a href="#">Documentation</a>
-          <a href="#">Support</a>
         </div>
       </header>
 
@@ -134,12 +135,6 @@ function Login() {
                 </div>
               </div>
 
-              {/* Remember */}
-              <div className="flex items-center gap-2 text-sm text-gray-500">
-                <input type="checkbox" />
-                Remember this device
-              </div>
-
               {/* Button */}
               <button
                 type="submit"
@@ -153,9 +148,6 @@ function Login() {
 
             <p className="text-sm text-gray-500 text-center mt-6">
               Need access?{" "}
-              <span className="text-red-600 cursor-pointer">
-                Contact Admin
-              </span>
               <button
                 onClick={() => navigate("/register")}
                 className="text-red-600 font-bold ml-1"
@@ -168,7 +160,9 @@ function Login() {
       </main>
 
       {/* Footer */}
-      <footer className="text-xs text-gray-500 text-center py-6 border-t border-gray-200"></footer>
+      <footer className="text-xs text-gray-500 text-center py-6 border-t border-gray-200">
+        <p>&copy; 2026 CyberSOC Intelligent Infrastructure</p>
+      </footer>
     </div>
   );
 }

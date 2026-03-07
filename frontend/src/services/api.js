@@ -59,9 +59,6 @@ export const getCurrentUser = (token) =>
     .then((res) => res.data);
 
 // ---- Statistics ----
-export const getStatistics = () =>
-  API.get("/statistics").then(unwrap);
-
 export const getGlobalStatistics = () =>
   API.get("/statistics/global").then(unwrap);
 
@@ -76,6 +73,14 @@ export const getBlockedIps = () =>
 export const blockIp = (ipAddress, reason = "Manual block", durationMinutes = 120) =>
   API.post("/block", {
     ip_address: ipAddress,
+    reason,
+    duration_minutes: durationMinutes,
+  });
+
+export const blockIpPerVm = (ipAddress, vmId, reason = "Manual block", durationMinutes = 120) =>
+  API.post("/block/per-vm", {
+    ip_address: ipAddress,
+    vm_id: vmId,
     reason,
     duration_minutes: durationMinutes,
   });

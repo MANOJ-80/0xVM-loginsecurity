@@ -30,13 +30,16 @@ function Dashboard() {
   const [stats, setStats] = useState({});
   const [recentAttacks, setRecentAttacks] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   const fetchData = useCallback(async () => {
     try {
+      setError(null);
       const data = await getGlobalStatistics();
       setStats(data);
     } catch (err) {
       console.error("Dashboard fetch failed:", err);
+      setError("Failed to load dashboard data. Retrying in 30s...");
     } finally {
       setLoading(false);
     }
@@ -59,6 +62,7 @@ function Dashboard() {
 
   const usernameData = (stats.top_attacked_usernames || []).slice(0, 6);
   const hourlyData = stats.attacks_by_hour || [];
+  const vmData = stats.attacks_by_vm || [];
 
   return (
     <div className="flex h-screen bg-[#f3f4f6] text-gray-900">
@@ -71,8 +75,21 @@ function Dashboard() {
           </div>
         ) : (
           <>
-            {/* Stats Row */}
-            <div className="grid grid-cols-5 gap-4 mb-8">
+            {/* Error Banner */}
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl mb-6 text-sm flex justify-between items-center">
+                <span>{error}</span>
+                <button
+                  onClick={() => { setError(null); fetchData(); }}
+                  className="text-red-600 hover:text-red-800 font-bold ml-4 text-xs"
+                >
+                  Retry Now
+                </button>
+              </div>
+            )}
+
+            {/* Stats Row 1 */}
+            <div className="grid grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
               <StatCard
                 title="Total Failed Attempts"
                 value={stats.total_failed_attempts}
@@ -82,7 +99,17 @@ function Dashboard() {
                 value={stats.unique_attackers}
               />
               <StatCard title="Blocked IPs" value={stats.blocked_ips} />
-              <StatCard title="Active VMs" value={stats.active_vms} />
+              <StatCard title="Active VMs" value={stats.active_vms} color="text-green-600" />
+              <StatCard title="Inactive VMs" value={stats.inactive_vms} color="text-gray-400" />
+              <StatCard
+                title="Attacks (24h)"
+                value={stats.attacks_last_24h}
+                color="text-red-600"
+              />
+            </div>
+
+            {/* Stats Row 2 — smaller accent stat */}
+            <div className="grid grid-cols-1 gap-4 mb-8">
               <StatCard
                 title="Attacks Last Hour"
                 value={stats.attacks_last_hour}
@@ -194,6 +221,45 @@ function Dashboard() {
                 )}
               </div>
             </div>
+
+            {/* Attacks by VM Chart */}
+            {vmData.length > 0 && (
+              <div className="bg-white border border-gray-200 rounded-xl p-6 mb-8">
+                <h3 className="text-sm font-bold text-gray-700 mb-4">
+                  Attacks by VM
+                </h3>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={vmData}>
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="#f1f5f9"
+                    />
+                    <XAxis
+                      dataKey="vm_id"
+                      tick={{ fill: "#94a3b8", fontSize: 11 }}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      tick={{ fill: "#94a3b8", fontSize: 11 }}
+                      axisLine={false}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        background: "#fff",
+                        border: "1px solid #e2e8f0",
+                        borderRadius: "8px",
+                        fontSize: "0.8rem",
+                      }}
+                    />
+                    <Bar
+                      dataKey="count"
+                      fill="#6366f1"
+                      radius={[4, 4, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
 
             {/* Attack Feed */}
             <AttackFeed logs={recentAttacks} />

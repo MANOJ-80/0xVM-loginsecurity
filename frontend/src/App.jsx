@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Login from "./pages/Login";
@@ -24,6 +24,9 @@ function App() {
           <Route path="/registry" element={<ProtectedRoute><BlockedIPs /></ProtectedRoute>} />
           <Route path="/assets" element={<ProtectedRoute><VMAssets /></ProtectedRoute>} />
           <Route path="/live-feed" element={<ProtectedRoute><LiveFeed /></ProtectedRoute>} />
+
+          {/* 404 catch-all */}
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>

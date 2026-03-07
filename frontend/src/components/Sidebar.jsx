@@ -1,6 +1,8 @@
 import { useNavigate, useLocation } from "react-router-dom";
-import { MdDashboard, MdWarning, MdBlock, MdDns, MdRssFeed, MdLogout } from "react-icons/md";
+import { useEffect, useState } from "react";
+import { MdDashboard, MdWarning, MdBlock, MdDns, MdRssFeed, MdLogout, MdCircle } from "react-icons/md";
 import { useAuth } from "../context/AuthContext";
+import { getHealth } from "../services/api";
 
 const navItems = [
   { path: "/dashboard", icon: MdDashboard, label: "Dashboard" },
@@ -14,11 +16,31 @@ function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
+  const [health, setHealth] = useState(null); // null = unknown, true = healthy, false = down
 
   const handleLogout = () => {
     logout();
     navigate("/");
   };
+
+  // Poll backend health every 30s
+  useEffect(() => {
+    let mounted = true;
+    const check = async () => {
+      try {
+        await getHealth();
+        if (mounted) setHealth(true);
+      } catch {
+        if (mounted) setHealth(false);
+      }
+    };
+    check();
+    const id = setInterval(check, 30000);
+    return () => {
+      mounted = false;
+      clearInterval(id);
+    };
+  }, []);
 
   return (
     <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
@@ -43,12 +65,37 @@ function Sidebar() {
         })}
       </nav>
 
+      {/* API Health Indicator */}
+      <div className="px-4 mt-6">
+        <div className="flex items-center gap-2 text-xs">
+          <MdCircle
+            className={`text-[8px] ${
+              health === true
+                ? "text-green-500"
+                : health === false
+                ? "text-red-500"
+                : "text-gray-300"
+            }`}
+          />
+          <span className="text-gray-500">
+            API: {health === true ? "Healthy" : health === false ? "Unreachable" : "Checking..."}
+          </span>
+        </div>
+      </div>
+
       <div className="mt-auto border-t border-gray-200">
         {/* User info */}
         {user && (
           <div className="px-4 py-3 text-sm">
             <p className="font-semibold text-gray-800 truncate">{user.username}</p>
-            <p className="text-gray-400 text-xs truncate">{user.email}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-gray-400 text-xs truncate">{user.email}</p>
+              {user.role && (
+                <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+                  {user.role}
+                </span>
+              )}
+            </div>
           </div>
         )}
 

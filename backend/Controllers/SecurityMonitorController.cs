@@ -450,12 +450,4 @@ public class SecurityMonitorController : ControllerBase
         }
     }
 
-    // =========================================================================
-    // GET /api/v1/geo-attacks  (stub)
-    // =========================================================================
-    [HttpGet("api/v1/geo-attacks")]
-    public IActionResult GetGeoAttacks()
-    {
-        return Ok(new { success = true, data = Array.Empty<object>() });
-    }
 }

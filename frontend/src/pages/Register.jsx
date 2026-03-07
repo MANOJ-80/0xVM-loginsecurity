@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { MdSecurity, MdPerson, MdEmail, MdLock } from "react-icons/md";
 import { useAuth } from "../context/AuthContext";
@@ -6,7 +6,7 @@ import { registerUser } from "../services/api";
 
 function Register() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, isAuthenticated, loading: authLoading } = useAuth();
 
   const [form, setForm] = useState({
     username: "",
@@ -16,6 +16,13 @@ function Register() {
   });
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  // Redirect authenticated users to dashboard
+  useEffect(() => {
+    if (!authLoading && isAuthenticated) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [authLoading, isAuthenticated, navigate]);
 
   const handleChange = (e) => {
     setForm({
@@ -72,9 +79,6 @@ function Register() {
         </div>
 
         <nav className="flex gap-8 text-sm text-gray-600">
-          <button className="hover:text-red-600">Features</button>
-          <button className="hover:text-red-600">Solutions</button>
-          <button className="hover:text-red-600">Compliance</button>
           <button
             onClick={() => navigate("/")}
             className="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-full font-bold"
@@ -200,11 +204,11 @@ function Register() {
       {/* FOOTER */}
       <footer className="text-xs text-gray-500 text-center py-6 border-t border-gray-200">
         <div className="flex justify-center gap-6 mb-2">
-          <button className="hover:text-red-600">Privacy Policy</button>
-          <button className="hover:text-red-600">Terms of Service</button>
-          <button className="hover:text-red-600">Security Standards</button>
+          <span>Privacy Policy</span>
+          <span>Terms of Service</span>
+          <span>Security Standards</span>
         </div>
-        <p>&copy; 2024 CyberSOC Intelligent Infrastructure</p>
+        <p>&copy; 2026 CyberSOC Intelligent Infrastructure</p>
       </footer>
     </div>
   );

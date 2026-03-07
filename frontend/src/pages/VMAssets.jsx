@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { MdAdd, MdRefresh, MdClose, MdCircle } from "react-icons/md";
 import Sidebar from "../components/Sidebar";
+import StatCard from "../components/StatCard";
 import { getVMs, getVmAttacks, registerVm, deleteVm } from "../services/api";
 
 function VMAssets() {
@@ -54,19 +55,23 @@ function VMAssets() {
     }
   }, [selectedVM, fetchVmDetail]);
 
-  // ---- Deregister a VM ----
+  // ---- Deregister a VM (backend sets inactive, so update local state to match) ----
   const handleDeleteVm = async (vmId) => {
-    if (!window.confirm(`Deregister VM "${vmId}"? This cannot be undone.`)) return;
+    if (!window.confirm(`Deregister VM "${vmId}"? It will be marked as inactive.`)) return;
     try {
       await deleteVm(vmId);
-      setVms((prev) => prev.filter((v) => v.vm_id !== vmId));
+      // Backend sets status to "inactive" — update local state to reflect that
+      setVms((prev) =>
+        prev.map((v) =>
+          v.vm_id === vmId ? { ...v, status: "inactive" } : v
+        )
+      );
       if (selectedVM?.vm_id === vmId) {
-        setSelectedVM(null);
-        setVmDetail(null);
+        setSelectedVM((prev) => prev ? { ...prev, status: "inactive" } : null);
       }
     } catch (err) {
-      console.error("Failed to delete VM:", err);
-      alert("Failed to deregister VM");
+      console.error("Failed to deregister VM:", err);
+      setError("Failed to deregister VM");
     }
   };
 
@@ -114,14 +119,15 @@ function VMAssets() {
 
         {/* STATS */}
         <div className="grid grid-cols-3 gap-6 mb-8">
-          <Stat title="Total Assets" value={totalVMs} />
-          <Stat title="Active Assets" value={activeVMs} color="text-green-600" />
-          <Stat title="Inactive Assets" value={inactiveVMs} color="text-red-600" />
+          <StatCard title="Total Assets" value={totalVMs} />
+          <StatCard title="Active Assets" value={activeVMs} color="text-green-600" />
+          <StatCard title="Inactive Assets" value={inactiveVMs} color="text-red-600" />
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl mb-6">
-            {error}
+          <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl mb-6 flex justify-between items-center">
+            <span>{error}</span>
+            <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600 font-bold ml-4">Dismiss</button>
           </div>
         )}
 
@@ -161,9 +167,9 @@ function VMAssets() {
                       }`}
                     >
                       <td className="p-4 font-mono text-xs">{vm.vm_id}</td>
-                      <td className="p-4">{vm.hostname || "—"}</td>
+                      <td className="p-4">{vm.hostname || "\u2014"}</td>
                       <td className="p-4 font-mono">{vm.ip_address}</td>
-                      <td className="p-4 capitalize">{vm.collection_method || "—"}</td>
+                      <td className="p-4 capitalize">{vm.collection_method || "\u2014"}</td>
                       <td className="p-4">
                         {vm.status === "active" ? (
                           <span className="inline-flex items-center gap-1 text-green-600">
@@ -177,15 +183,19 @@ function VMAssets() {
                       </td>
                       <td className="p-4 text-xs">{formatTime(vm.last_seen)}</td>
                       <td className="p-4">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteVm(vm.vm_id);
-                          }}
-                          className="text-red-500 hover:text-red-700 text-xs font-semibold"
-                        >
-                          Remove
-                        </button>
+                        {vm.status === "active" ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteVm(vm.vm_id);
+                            }}
+                            className="text-red-500 hover:text-red-700 text-xs font-semibold"
+                          >
+                            Deregister
+                          </button>
+                        ) : (
+                          <span className="text-gray-400 text-xs">Inactive</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -227,7 +237,7 @@ function VMAssets() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Collection Method</span>
-                  <span className="capitalize">{selectedVM.collection_method || "—"}</span>
+                  <span className="capitalize">{selectedVM.collection_method || "\u2014"}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Status</span>
@@ -251,11 +261,11 @@ function VMAssets() {
               ) : vmDetail ? (
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
-                    <Stat title="Total Attacks" value={vmDetail.total_attacks ?? 0} />
-                    <Stat title="Unique Attackers" value={vmDetail.unique_attackers ?? 0} />
+                    <StatCard title="Total Attacks" value={vmDetail.total_attacks ?? 0} />
+                    <StatCard title="Unique Attackers" value={vmDetail.unique_attackers ?? 0} />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
-                    <Stat title="Blocked IPs" value={vmDetail.blocked_count ?? 0} color="text-red-600" />
+                    <StatCard title="Blocked IPs" value={vmDetail.blocked_count ?? 0} color="text-red-600" />
                     <div className="bg-gray-50 border border-gray-200 p-4 rounded-xl">
                       <p className="text-xs text-gray-500">Last Attack</p>
                       <p className="text-xs font-semibold mt-1">
@@ -276,7 +286,7 @@ function VMAssets() {
       {showRegisterModal && (
         <RegisterVmModal
           onClose={() => setShowRegisterModal(false)}
-          onRegistered={(newVm) => {
+          onRegistered={() => {
             fetchVMs();
             setShowRegisterModal(false);
           }}
@@ -287,16 +297,6 @@ function VMAssets() {
 }
 
 export default VMAssets;
-
-// ---- Stat mini-component ----
-function Stat({ title, value, color = "" }) {
-  return (
-    <div className="bg-white border border-gray-200 p-6 rounded-xl">
-      <p className="text-xs text-gray-500">{title}</p>
-      <h3 className={`text-2xl font-bold ${color}`}>{value}</h3>
-    </div>
-  );
-}
 
 // ---- Register VM Modal ----
 function RegisterVmModal({ onClose, onRegistered }) {
