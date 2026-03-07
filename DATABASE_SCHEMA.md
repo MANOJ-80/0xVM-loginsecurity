@@ -39,6 +39,7 @@ IF OBJECT_ID('SuspiciousIPs',      'U') IS NOT NULL DROP TABLE SuspiciousIPs;
 IF OBJECT_ID('FailedLoginAttempts','U') IS NOT NULL DROP TABLE FailedLoginAttempts;
 IF OBJECT_ID('VMSources',         'U') IS NOT NULL DROP TABLE VMSources;
 IF OBJECT_ID('Settings',          'U') IS NOT NULL DROP TABLE Settings;
+IF OBJECT_ID('Users',             'U') IS NOT NULL DROP TABLE Users;
 GO
 
 /* ===============================================================
@@ -173,6 +174,24 @@ CREATE TABLE AttackStatistics (
 
 CREATE INDEX idx_stats_date ON AttackStatistics(stat_date);
 CREATE INDEX idx_stats_vm   ON AttackStatistics(vm_id, stat_date);
+GO
+
+
+-- Dashboard user accounts (JWT authentication).
+-- Passwords are BCrypt-hashed by the .NET backend.
+CREATE TABLE Users (
+    Id             INT IDENTITY(1,1) PRIMARY KEY,
+    username       NVARCHAR(100)  NOT NULL,
+    email          NVARCHAR(256)  NOT NULL,
+    password_hash  NVARCHAR(MAX)  NOT NULL,
+    role           VARCHAR(20)    DEFAULT 'analyst',   -- 'admin' | 'analyst'
+    created_at     DATETIME2      DEFAULT GETUTCDATE(),
+    last_login     DATETIME2      NULL,
+    is_active      BIT            DEFAULT 1
+);
+
+CREATE UNIQUE INDEX idx_users_email    ON Users(email);
+CREATE UNIQUE INDEX idx_users_username ON Users(username);
 GO
 
 
@@ -501,6 +520,93 @@ Aggregated daily statistics for dashboard.
 | top_username | NVARCHAR(256) | |
 | top_ip | VARCHAR(45) | |
 | created_at | DATETIME2 | |
+
+### 8. Users
+
+Dashboard user accounts for JWT authentication. Passwords are BCrypt-hashed
+by the .NET backend — they cannot be generated in pure SQL.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| Id | INT IDENTITY | PK |
+| username | NVARCHAR(100) | UNIQUE, NOT NULL |
+| email | NVARCHAR(256) | UNIQUE, NOT NULL (stored lowercase) |
+| password_hash | NVARCHAR(MAX) | BCrypt hash, NOT NULL |
+| role | VARCHAR(20) | `admin` or `analyst` (default) |
+| created_at | DATETIME2 | Default GETUTCDATE() |
+| last_login | DATETIME2 | Updated on each login, NULL initially |
+| is_active | BIT | Default 1, set 0 to deactivate |
+
+**Indexes:** `idx_users_email` (unique), `idx_users_username` (unique)
+
+## User Management Queries
+
+### Option A: Register via API, then promote to admin (Recommended)
+
+1. Register a normal user via the dashboard (or via curl):
+
+```powershell
+curl -X POST http://localhost:3000/api/v1/auth/register `
+  -H "Content-Type: application/json" `
+  -d '{"email":"admin@yourorg.com","username":"admin","password":"Admin@123"}'
+```
+
+2. Promote that user to admin in SSMS:
+
+```sql
+USE SecurityMonitor;
+UPDATE Users SET role = 'admin' WHERE email = 'admin@yourorg.com';
+```
+
+### Option B: Direct SQL INSERT with pre-computed BCrypt hash
+
+Use this if you want to seed an admin without hitting the API.
+The hash below is for password **`Admin@123`** (BCrypt cost 11):
+
+```sql
+USE SecurityMonitor;
+INSERT INTO Users (username, email, password_hash, role, created_at, is_active)
+VALUES (
+    'admin',
+    'admin@yourorg.com',
+    '$2b$11$HBUZlaazZ2KpWJK5ndssAeRRHwW1WfM12mVZhCgPMm8uigcUoQ/Wq',
+    'admin',
+    GETUTCDATE(),
+    1
+);
+```
+
+> **WARNING:** The hash above was pre-computed. If you want a different
+> password, use Option A instead — you cannot generate BCrypt hashes in
+> plain SQL.
+
+### Useful User Queries
+
+```sql
+-- List all users
+SELECT Id, username, email, role, is_active, created_at, last_login
+FROM Users;
+
+-- Promote a user to admin
+UPDATE Users SET role = 'admin' WHERE email = 'admin@yourorg.com';
+
+-- Demote an admin to analyst
+UPDATE Users SET role = 'analyst' WHERE email = 'admin@yourorg.com';
+
+-- Deactivate a user (blocks login without deleting)
+UPDATE Users SET is_active = 0 WHERE email = 'user@example.com';
+
+-- Reactivate a user
+UPDATE Users SET is_active = 1 WHERE email = 'user@example.com';
+
+-- Delete a user permanently
+DELETE FROM Users WHERE email = 'user@example.com';
+
+-- Count users by role
+SELECT role, COUNT(*) AS count FROM Users GROUP BY role;
+```
+
+---
 
 ## Stored Procedures
 
