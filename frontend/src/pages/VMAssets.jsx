@@ -178,159 +178,166 @@ function VMAssets() {
           </div>
         )}
 
-        <div className="flex gap-8">
-          {/* VM TABLE */}
-          <div className="flex-1 bg-white rounded-xl border border-gray-200">
-            <h3 className="p-5 font-bold border-b border-gray-200">
-              Active Monitors
-            </h3>
+        {/* VM TABLE */}
+        <div className="bg-white rounded-xl border border-gray-200">
+          <h3 className="p-5 font-bold border-b border-gray-200">
+            Active Monitors
+          </h3>
 
-            {loading ? (
-              <div className="p-8 text-center text-gray-400">Loading VMs...</div>
-            ) : vms.length === 0 ? (
-              <div className="p-8 text-center text-gray-400">
-                No VMs registered yet.
-              </div>
-            ) : (
-              <table className="w-full text-sm">
-                <thead className="text-gray-500">
-                  <tr>
-                    <th className="p-4 text-left">VM ID</th>
-                    <th className="p-4 text-left">Hostname</th>
-                    <th className="p-4 text-left">IP Address</th>
-                    <th className="p-4 text-left">Method</th>
-                    <th className="p-4 text-left">Status</th>
-                    <th className="p-4 text-left">Last Seen</th>
-                    <th className="p-4 text-left">Actions</th>
+          {loading ? (
+            <div className="p-8 text-center text-gray-400">Loading VMs...</div>
+          ) : vms.length === 0 ? (
+            <div className="p-8 text-center text-gray-400">
+              No VMs registered yet.
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="text-gray-500">
+                <tr>
+                  <th className="p-4 text-left">VM ID</th>
+                  <th className="p-4 text-left">Hostname</th>
+                  <th className="p-4 text-left">IP Address</th>
+                  <th className="p-4 text-left">Method</th>
+                  <th className="p-4 text-left">Status</th>
+                  <th className="p-4 text-left">Last Seen</th>
+                  <th className="p-4 text-left">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vms.map((vm) => (
+                  <tr
+                    key={vm.vm_id}
+                    onClick={() => setSelectedVM(vm)}
+                    className={`border-t border-gray-200 hover:bg-gray-50 cursor-pointer ${
+                      selectedVM?.vm_id === vm.vm_id ? "bg-blue-50" : ""
+                    }`}
+                  >
+                    <td className="p-4 font-mono text-xs">{vm.vm_id}</td>
+                    <td className="p-4">{vm.hostname || "\u2014"}</td>
+                    <td className="p-4 font-mono">{vm.ip_address}</td>
+                    <td className="p-4 capitalize">{vm.collection_method || "\u2014"}</td>
+                    <td className="p-4">
+                      {vm.status === "active" ? (
+                        <span className="inline-flex items-center gap-1 text-green-600">
+                          <MdCircle className="text-[8px]" /> Active
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-gray-400">
+                          <MdCircle className="text-[8px]" /> Inactive
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-4 text-xs">{formatTime(vm.last_seen)}</td>
+                    <td className="p-4">
+                      {vm.status === "active" && isAdmin ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteVm(vm.vm_id);
+                          }}
+                          className="text-red-500 hover:text-red-700 text-xs font-semibold"
+                        >
+                          Deregister
+                        </button>
+                      ) : vm.status === "active" ? (
+                        <span className="text-green-600 text-xs">Active</span>
+                      ) : (
+                        <span className="text-gray-400 text-xs">Inactive</span>
+                      )}
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {vms.map((vm) => (
-                    <tr
-                      key={vm.vm_id}
-                      onClick={() => setSelectedVM(vm)}
-                      className={`border-t border-gray-200 hover:bg-gray-50 cursor-pointer ${
-                        selectedVM?.vm_id === vm.vm_id ? "bg-blue-50" : ""
-                      }`}
-                    >
-                      <td className="p-4 font-mono text-xs">{vm.vm_id}</td>
-                      <td className="p-4">{vm.hostname || "\u2014"}</td>
-                      <td className="p-4 font-mono">{vm.ip_address}</td>
-                      <td className="p-4 capitalize">{vm.collection_method || "\u2014"}</td>
-                      <td className="p-4">
-                        {vm.status === "active" ? (
-                          <span className="inline-flex items-center gap-1 text-green-600">
-                            <MdCircle className="text-[8px]" /> Active
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-gray-400">
-                            <MdCircle className="text-[8px]" /> Inactive
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-4 text-xs">{formatTime(vm.last_seen)}</td>
-                      <td className="p-4">
-                        {vm.status === "active" && isAdmin ? (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteVm(vm.vm_id);
-                            }}
-                            className="text-red-500 hover:text-red-700 text-xs font-semibold"
-                          >
-                            Deregister
-                          </button>
-                        ) : vm.status === "active" ? (
-                          <span className="text-green-600 text-xs">Active</span>
-                        ) : (
-                          <span className="text-gray-400 text-xs">Inactive</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
 
-          {/* VM DETAILS PANEL */}
-          {selectedVM && (
-            <div className="w-96 bg-white border border-gray-200 rounded-xl p-6">
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h3 className="text-lg font-bold">VM Details</h3>
-                  <p className="text-gray-500 text-sm">
-                    {selectedVM.hostname || selectedVM.vm_id}
-                  </p>
-                </div>
-                <button
-                  onClick={() => {
-                    setSelectedVM(null);
-                    setVmDetail(null);
-                  }}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <MdClose size={20} />
-                </button>
+        {/* VM DETAILS PANEL — full width below the table */}
+        {selectedVM && (
+          <div className="bg-white border border-gray-200 rounded-xl p-6 mt-6">
+            {/* Header */}
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h3 className="text-lg font-bold">
+                  VM Details — {selectedVM.hostname || selectedVM.vm_id}
+                </h3>
+                <p className="text-gray-500 text-sm">
+                  Detailed information and attack statistics
+                </p>
               </div>
+              <button
+                onClick={() => {
+                  setSelectedVM(null);
+                  setVmDetail(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <MdClose size={20} />
+              </button>
+            </div>
 
-              {/* VM Info */}
-              <div className="space-y-2 mb-6 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-500">VM ID</span>
-                  <span className="font-mono text-xs">{selectedVM.vm_id}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">IP Address</span>
-                  <span className="font-mono">{selectedVM.ip_address}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Collection Method</span>
-                  <span className="capitalize">{selectedVM.collection_method || "\u2014"}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Status</span>
-                  <span className={selectedVM.status === "active" ? "text-green-600" : "text-gray-400"}>
-                    {selectedVM.status === "active" ? "Active" : "Inactive"}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Last Seen</span>
-                  <span className="text-xs">{formatTime(selectedVM.last_seen)}</span>
-                </div>
-              </div>
-
-              {/* Attack Stats from /vms/{vmId}/attacks */}
-              <h4 className="text-sm font-bold text-gray-700 mb-3 border-t border-gray-200 pt-4">
-                Attack Statistics
-              </h4>
-
-              {detailLoading ? (
-                <div className="text-gray-400 text-sm">Loading attack data...</div>
-              ) : vmDetail ? (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <StatCard title="Total Attacks" value={vmDetail.total_attacks ?? 0} />
-                    <StatCard title="Unique Attackers" value={vmDetail.unique_attackers ?? 0} />
+            {/* 3-column grid: VM Info | Attack Stats | Per-VM Block */}
+            <div className={`grid gap-6 ${isAdmin && selectedVM.status === "active" ? "grid-cols-1 md:grid-cols-3" : "grid-cols-1 md:grid-cols-2"}`}>
+              {/* Column 1: VM Info */}
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-5">
+                <h4 className="text-sm font-bold text-gray-700 mb-4">VM Information</h4>
+                <div className="space-y-3 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">VM ID</span>
+                    <span className="font-mono text-xs">{selectedVM.vm_id}</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <StatCard title="Blocked IPs" value={vmDetail.blocked_count ?? 0} color="text-red-600" />
-                    <div className="bg-gray-50 border border-gray-200 p-4 rounded-xl">
-                      <p className="text-xs text-gray-500">Last Attack</p>
-                      <p className="text-xs font-semibold mt-1">
-                        {formatTime(vmDetail.last_attack)}
-                      </p>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">IP Address</span>
+                    <span className="font-mono">{selectedVM.ip_address}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Collection Method</span>
+                    <span className="capitalize">{selectedVM.collection_method || "\u2014"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Status</span>
+                    <span className={selectedVM.status === "active" ? "text-green-600 font-semibold" : "text-gray-400"}>
+                      {selectedVM.status === "active" ? "Active" : "Inactive"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Last Seen</span>
+                    <span className="text-xs">{formatTime(selectedVM.last_seen)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Column 2: Attack Stats */}
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-5">
+                <h4 className="text-sm font-bold text-gray-700 mb-4">Attack Statistics</h4>
+
+                {detailLoading ? (
+                  <div className="text-gray-400 text-sm">Loading attack data...</div>
+                ) : vmDetail ? (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <StatCard title="Total Attacks" value={vmDetail.total_attacks ?? 0} />
+                      <StatCard title="Unique Attackers" value={vmDetail.unique_attackers ?? 0} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <StatCard title="Blocked IPs" value={vmDetail.blocked_count ?? 0} color="text-red-600" />
+                      <div className="bg-white border border-gray-200 p-4 rounded-xl">
+                        <p className="text-xs text-gray-500">Last Attack</p>
+                        <p className="text-xs font-semibold mt-1">
+                          {formatTime(vmDetail.last_attack)}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ) : (
-                <div className="text-gray-400 text-sm">No attack data available.</div>
-              )}
+                ) : (
+                  <div className="text-gray-400 text-sm">No attack data available.</div>
+                )}
+              </div>
 
-              {/* Per-VM Block Form (admin only) */}
+              {/* Column 3: Per-VM Block Form (admin only) */}
               {isAdmin && selectedVM.status === "active" && (
-                <>
-                  <h4 className="text-sm font-bold text-gray-700 mb-3 border-t border-gray-200 pt-4 mt-4 flex items-center gap-2">
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-5">
+                  <h4 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2">
                     <MdBlock className="text-red-500" /> Block IP on this VM
                   </h4>
 
@@ -342,49 +349,55 @@ function VMAssets() {
                   {blockError && (
                     <div className="bg-red-50 border border-red-200 text-red-700 p-2 rounded-lg mb-3 text-xs flex justify-between items-center">
                       <span>{blockError}</span>
-                      <button onClick={() => setBlockError(null)} className="text-red-400 hover:text-red-600 font-bold ml-2 text-xs">×</button>
+                      <button onClick={() => setBlockError(null)} className="text-red-400 hover:text-red-600 font-bold ml-2 text-xs">&times;</button>
                     </div>
                   )}
 
-                  <form onSubmit={handlePerVmBlock} className="space-y-2">
-                    <input
-                      type="text"
-                      placeholder="IP Address"
-                      value={blockForm.ip}
-                      onChange={(e) => setBlockForm({ ...blockForm, ip: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
-                      required
-                    />
-                    <input
-                      type="text"
-                      placeholder="Reason (optional)"
-                      value={blockForm.reason}
-                      onChange={(e) => setBlockForm({ ...blockForm, reason: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
-                    />
-                    <div className="flex gap-2 items-center">
+                  <form onSubmit={handlePerVmBlock} className="space-y-3">
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">IP Address</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 192.168.1.100"
+                        value={blockForm.ip}
+                        onChange={(e) => setBlockForm({ ...blockForm, ip: e.target.value })}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Reason</label>
+                      <input
+                        type="text"
+                        placeholder="Optional"
+                        value={blockForm.reason}
+                        onChange={(e) => setBlockForm({ ...blockForm, reason: e.target.value })}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">Duration (minutes)</label>
                       <input
                         type="number"
                         min={1}
                         value={blockForm.duration}
                         onChange={(e) => setBlockForm({ ...blockForm, duration: parseInt(e.target.value) || 120 })}
-                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
                       />
-                      <span className="text-xs text-gray-400">min</span>
                     </div>
                     <button
                       type="submit"
                       disabled={blockSubmitting}
-                      className="w-full bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white py-2 rounded-lg text-xs font-bold"
+                      className="w-full bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white py-2.5 rounded-lg text-sm font-bold mt-1"
                     >
                       {blockSubmitting ? "Blocking..." : "Block on this VM"}
                     </button>
                   </form>
-                </>
+                </div>
               )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </main>
 
       {/* REGISTER VM MODAL */}
